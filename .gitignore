@@ -1,0 +1,29 @@
+# Data and Models
+data/
+models/*.pkl
+models/*.pth
+models/*.bin
+results/
+figures/
+!figures/journal/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Zip/Backup
+*.zip
+*.docx
+*.pdf
+api_pid.txt
+importance_check.json
+results_check.json
+embeddings_check.json
