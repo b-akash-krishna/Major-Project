@@ -10,10 +10,12 @@ MODELS_DIR = os.path.join(BASE_DIR, "models")
 RESULTS_DIR = os.path.join(BASE_DIR, "results")
 FIGURES_DIR = os.path.join(BASE_DIR, "figures")
 
-# MIMIC-IV Raw Data Paths
-# Note: Update these to match your local installation if different
-MIMIC_RAW_DIR = r"C:\INTERNSHIP_COURSES\Final-Project\physionet.org\files\mimiciv\2.2"
-MIMIC_NOTE_PATH = r"C:\INTERNSHIP_COURSES\Final-Project\physionet.org\files\mimic-iv-note\2.2\note\discharge.csv.gz"
+# MIMIC-IV Raw Data Sources (External)
+MIMIC_IV_DIR = r"C:\INTERNSHIP_COURSES\Final-Project\physionet.org\files\mimiciv\3.1"
+MIMIC_NOTE_DIR = r"C:\INTERNSHIP_COURSES\Final-Project\physionet.org\files\mimic-iv-note\2.2"
+MIMIC_BHC_DIR = r"C:\INTERNSHIP_COURSES\Final-Project\physionet.org\files\mimic-iv-ext-bhc-labeled-clinical-notes-dataset-for-hospital-course-summarization-1.2.0"
+
+# Note: MIMIC_NOTE_PATH is typically found in MIMIC_NOTE_DIR/note/discharge.csv.gz
 
 # Processed Data Files
 FEATURES_CSV = os.path.join(DATA_DIR, "ultimate_features.csv")

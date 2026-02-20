@@ -46,6 +46,7 @@ def main():
     
     steps = [
         ("Feature Extraction", "01_extract.py"),
+        ("Feature Selection (SHAP)", "01b_select_features.py"),
         ("Clinical T5 Embedding", "02_embed.py"),
         ("Model Training & Calibration", "03_train.py"),
         ("Embedding Diagnostics", "04_diagnose.py"),

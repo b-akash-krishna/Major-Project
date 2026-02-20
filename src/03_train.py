@@ -44,7 +44,17 @@ class TRANCETrainer:
     def load_and_prepare_data(self):
         """Loads and merges tabular features with embeddings"""
         logger.info("Loading features and embeddings...")
-        tabular = pd.read_csv(FEATURES_CSV)
+        
+        # Check for pruned features first (for maximum performance)
+        pruned_path = FEATURES_CSV.replace(".csv", "_pruned.csv")
+        active_features_path = pruned_path if os.path.exists(pruned_path) else FEATURES_CSV
+        
+        if os.path.exists(pruned_path):
+            logger.info(f"Using Pruned Holistic Feature Set: {pruned_path}")
+        else:
+            logger.info(f"Using Raw Holistic Feature Set: {FEATURES_CSV}")
+            
+        tabular = pd.read_csv(active_features_path)
         
         if self.use_embeddings and os.path.exists(EMBEDDINGS_CSV):
             embs = pd.read_csv(EMBEDDINGS_CSV)
