@@ -11,11 +11,20 @@ import joblib
 import logging
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler, PolynomialFeatures
-from .config import (
-    FEATURES_CSV, EMBEDDINGS_CSV, EMBEDDING_INFO_PKL, 
-    MIMIC_NOTE_PATH, EMBEDDING_DIM, RANDOM_STATE
-)
-from .embedding_utils import EmbeddingGenerator, validate_embeddings
+try:
+    from .config import (
+        FEATURES_CSV, EMBEDDINGS_CSV, EMBEDDING_INFO_PKL, 
+        MIMIC_NOTE_DIR, MIMIC_BHC_DIR, EMBEDDING_DIM, RANDOM_STATE
+    )
+    from .embedding_utils import EmbeddingGenerator, validate_embeddings
+except ImportError:
+    import sys
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from config import (
+        FEATURES_CSV, EMBEDDINGS_CSV, EMBEDDING_INFO_PKL, 
+        MIMIC_NOTE_DIR, MIMIC_BHC_DIR, EMBEDDING_DIM, RANDOM_STATE
+    )
+    from embedding_utils import EmbeddingGenerator, validate_embeddings
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -30,19 +39,69 @@ class EmbeddingPipeline:
             raise FileNotFoundError(f"Features file not found at {FEATURES_CSV}")
             
         df = pd.read_csv(FEATURES_CSV)
-        logger.info(f"Loaded {len(df)} feature samples")
+        logger.info(f"Loaded {len(df)} tabular feature samples")
 
-        notes_df = None
-        if os.path.exists(MIMIC_NOTE_PATH):
-            logger.info("Loading clinical notes...")
-            notes = pd.read_csv(MIMIC_NOTE_PATH, usecols=['hadm_id', 'text']).dropna()
-            notes['hadm_id'] = notes['hadm_id'].astype(int)
-            
-            # Aggregation logic
-            notes_df = notes.groupby('hadm_id')['text'].apply(lambda x: ' '.join(x)).reset_index()
-            notes_df = notes_df[notes_df['hadm_id'].isin(df['hadm_id'])]
-            logger.info(f"Matched {len(notes_df)} admissions with notes")
-            
+        cohort_hadm = set(df['hadm_id'].astype(int).tolist())
+        file_index = {}
+        for base_dir in [MIMIC_NOTE_DIR, MIMIC_BHC_DIR]:
+            if not os.path.isdir(base_dir): continue
+            for root, _, files in os.walk(base_dir):
+                for name in files:
+                    file_index[name] = os.path.join(root, name)
+
+        notes_df = pd.DataFrame({'hadm_id': list(cohort_hadm)})
+        notes_df['text'] = ""
+        note_to_hadm = pd.DataFrame(columns=['note_id', 'hadm_id'])
+
+        discharge_path = file_index.get("discharge.csv.gz")
+        if discharge_path:
+            logger.info("Loading discharge notes...")
+            try:
+                d = pd.read_csv(discharge_path, usecols=['hadm_id', 'text', 'note_id'], nrows=1_000_000).dropna(subset=['hadm_id', 'text'])
+                d = d[d['hadm_id'].isin(cohort_hadm)]
+                d_agg = d.groupby('hadm_id')['text'].apply(lambda x: " [DISCHARGE] ".join(x.astype(str))).reset_index()
+                notes_df = notes_df.merge(d_agg, on='hadm_id', how='left')
+                notes_df['text'] = notes_df['text'] + " " + notes_df['text_y'].fillna("")
+                notes_df = notes_df.drop(columns=['text_y'])
+                note_to_hadm = d[['note_id', 'hadm_id']].dropna().drop_duplicates()
+            except Exception as e:
+                logger.error(f"Failed to load discharge notes: {e}")
+
+        rad_path = file_index.get("radiology.csv.gz")
+        if rad_path:
+            logger.info("Loading radiology notes...")
+            try:
+                r = pd.read_csv(rad_path, usecols=['hadm_id', 'text'], nrows=1_000_000).dropna()
+                r = r[r['hadm_id'].isin(cohort_hadm)]
+                r_agg = r.groupby('hadm_id')['text'].apply(lambda x: " [RADIOLOGY] ".join(x.astype(str))).reset_index()
+                notes_df = notes_df.merge(r_agg, on='hadm_id', how='left')
+                notes_df['text'] = notes_df['text'] + " " + notes_df['text_y'].fillna("")
+                notes_df = notes_df.drop(columns=['text_y'])
+            except Exception as e:
+                logger.error(f"Failed to load radiology notes: {e}")
+
+        bhc_path = file_index.get("mimic-iv-bhc.csv")
+        if bhc_path and not note_to_hadm.empty:
+            logger.info("Loading BHC notes...")
+            try:
+                bhc = pd.read_csv(bhc_path, usecols=["note_id", "input_tokens", "target_tokens"], nrows=500_000).dropna(subset=["note_id"])
+                bhc = bhc.merge(note_to_hadm, on='note_id', how='inner')
+                bhc = bhc[bhc['hadm_id'].isin(cohort_hadm)]
+                bhc['bhc_text'] = " [BHC INPUT] " + bhc['input_tokens'].astype(str).fillna("") + " [BHC TARGET] " + bhc['target_tokens'].astype(str).fillna("")
+                bhc_agg = bhc.groupby('hadm_id')['bhc_text'].apply(lambda x: " ".join(x)).reset_index()
+                notes_df = notes_df.merge(bhc_agg, on='hadm_id', how='left')
+                notes_df['text'] = notes_df['text'] + " " + notes_df['bhc_text'].fillna("")
+                notes_df = notes_df.drop(columns=['bhc_text'])
+            except Exception as e:
+                logger.error(f"Failed to load BHC notes: {e}")
+
+        notes_df['text'] = notes_df['text'].str.strip()
+        notes_df = notes_df[notes_df['text'] != ""]
+        
+        logger.info(f"Matched {len(notes_df)} admissions with combined clinical notes")
+        
+        if notes_df.empty:
+            return df, None
         return df, notes_df
 
     def run_text_generation(self, df, notes_df):

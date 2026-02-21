@@ -13,10 +13,18 @@ import logging
 from transformers import AutoTokenizer, T5EncoderModel, AutoModel
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler, PolynomialFeatures
-from .config import (
-    TEXT_MODEL_CANDIDATES, EMBEDDING_DIM, TEXT_MAX_LENGTH, 
-    BATCH_SIZE_GPU, BATCH_SIZE_CPU, EMBEDDING_INFO_PKL, RANDOM_STATE
-)
+try:
+    from .config import (
+        TEXT_MODEL_CANDIDATES, EMBEDDING_DIM, TEXT_MAX_LENGTH, 
+        BATCH_SIZE_GPU, BATCH_SIZE_CPU, EMBEDDING_INFO_PKL, RANDOM_STATE
+    )
+except ImportError:
+    import sys
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from config import (
+        TEXT_MODEL_CANDIDATES, EMBEDDING_DIM, TEXT_MAX_LENGTH, 
+        BATCH_SIZE_GPU, BATCH_SIZE_CPU, EMBEDDING_INFO_PKL, RANDOM_STATE
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +208,13 @@ def validate_embeddings(embeddings, target_values=None, verbose=True):
 class ModelContainer:
     """Singleton container for the trained readmission model"""
     def __init__(self, model_path=None):
-        from .config import MAIN_MODEL_PKL
+        try:
+            from .config import MAIN_MODEL_PKL
+        except ImportError:
+            import sys
+            if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
+                sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+            from config import MAIN_MODEL_PKL
         self.model_path = model_path or MAIN_MODEL_PKL
         self.model_data = None
         self.load_model()

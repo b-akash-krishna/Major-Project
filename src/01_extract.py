@@ -393,54 +393,6 @@ class MIMICExtractor:
             top_meds = self._select_top_contributors(emar, value_col="medication", min_count=80, top_k=90)
             self._pivot_binary(emar, col="medication", top_items=top_meds, prefix="med")
 
-    def extract_note_and_bhc_features(self) -> None:
-        logger.info("Step 9/10: notes + bhc")
-        discharge = self._load_csv("discharge.csv.gz", usecols=["note_id", "hadm_id", "text"])
-        if not discharge.empty and "hadm_id" in discharge.columns:
-            d = discharge[discharge["hadm_id"].isin(self.cohort_hadm)].copy()
-            text_col = "text" if "text" in d.columns else None
-            if text_col:
-                d["note_len"] = d[text_col].astype(str).str.len().clip(0, 30_000)
-                note_agg = d.groupby("hadm_id", as_index=False).agg(
-                    discharge_note_count=("hadm_id", "size"),
-                    discharge_note_len_mean=("note_len", "mean"),
-                    discharge_note_len_max=("note_len", "max"),
-                )
-                self._merge_hadm_features(note_agg)
-
-        radiology = self._load_csv("radiology.csv.gz", usecols=["hadm_id", "text"])
-        if not radiology.empty and "hadm_id" in radiology.columns:
-            r = radiology[radiology["hadm_id"].isin(self.cohort_hadm)].copy()
-            text_col = "text" if "text" in r.columns else None
-            if text_col:
-                r["rad_len"] = r[text_col].astype(str).str.len().clip(0, 30_000)
-                rad_agg = r.groupby("hadm_id", as_index=False).agg(
-                    radiology_note_count=("hadm_id", "size"),
-                    radiology_note_len_mean=("rad_len", "mean"),
-                )
-                self._merge_hadm_features(rad_agg)
-
-        bhc = self._load_csv("mimic-iv-bhc.csv", usecols=["note_id", "input_tokens", "target_tokens"])
-        if bhc.empty:
-            return
-        needed = {"note_id", "input_tokens", "target_tokens"}
-        if not needed.issubset(set(bhc.columns)):
-            return
-        if "note_id" not in discharge.columns or "hadm_id" not in discharge.columns:
-            return
-
-        note_to_hadm = discharge[["note_id", "hadm_id"]].dropna().drop_duplicates()
-        bhc = bhc[list(needed)].dropna(subset=["note_id"]).merge(note_to_hadm, on="note_id", how="inner")
-        bhc = bhc[bhc["hadm_id"].isin(self.cohort_hadm)]
-        if bhc.empty:
-            return
-        bhc_agg = bhc.groupby("hadm_id", as_index=False).agg(
-            bhc_input_tokens_mean=("input_tokens", "mean"),
-            bhc_target_tokens_mean=("target_tokens", "mean"),
-            bhc_target_tokens_max=("target_tokens", "max"),
-        )
-        self._merge_hadm_features(bhc_agg)
-
     def add_historical_and_engineered(self) -> None:
         logger.info("Step 10/10: historical + engineered")
         self.df = self.df.sort_values(["subject_id", "admittime"])
@@ -489,7 +441,6 @@ class MIMICExtractor:
             self.extract_severity_and_drg()
             self.extract_service_history()
             self.extract_codes_and_meds()
-            self.extract_note_and_bhc_features()
             self.add_historical_and_engineered()
             self.select_top_features(max_features=self.top_sparse_features)
 

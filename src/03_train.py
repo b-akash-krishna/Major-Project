@@ -20,10 +20,18 @@ from sklearn.metrics import roc_auc_score, brier_score_loss, log_loss
 from sklearn.calibration import calibration_curve, IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 
-from .config import (
-    FEATURES_CSV, EMBEDDINGS_CSV, MAIN_MODEL_PKL, RESULTS_DIR, 
-    FIGURES_DIR, RANDOM_STATE
-)
+try:
+    from .config import (
+        FEATURES_CSV, EMBEDDINGS_CSV, MAIN_MODEL_PKL, RESULTS_DIR, 
+        FIGURES_DIR, RANDOM_STATE
+    )
+except ImportError:
+    import sys
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from config import (
+        FEATURES_CSV, EMBEDDINGS_CSV, MAIN_MODEL_PKL, RESULTS_DIR, 
+        FIGURES_DIR, RANDOM_STATE
+    )
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
