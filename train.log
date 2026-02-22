@@ -6,3 +6,52 @@
 2026-02-22 18:09:09,059 - INFO - Train readmit: 18.71% | Val: 18.38% | Test: 18.37%
 2026-02-22 18:09:09,060 - INFO - Class imbalance (pos_weight): 4.35
 2026-02-22 18:09:09,505 - INFO - Applying SMOTETomek (before: 71696 pos / 311573 neg, ratio=0.230) ...
+2026-02-22 18:25:38,420 - INFO - After SMOTETomek: 100238 pos / 302761 neg (ratio=0.331)
+2026-02-22 18:25:38,517 - INFO - Optuna HPO: 5 trials ...
+2026-02-22 18:25:38,567 - INFO - Starting Optuna optimization: 5 trials
+2026-02-22 18:27:50,611 - INFO -   Trial   0 | AUROC: 0.7671 | best: 0.7671 | boosting: gbdt  | leaves: 269 | lr: 0.0417
+2026-02-22 18:35:31,352 - INFO -   Trial   1 | AUROC: 0.7702 | best: 0.7702 | boosting: gbdt  | leaves: 185 | lr: 0.0057
+2026-02-22 18:39:49,512 - INFO -   Trial   2 | AUROC: 0.7654 | best: 0.7702 | boosting: goss  | leaves: 186 | lr: 0.0087
+2026-02-22 18:44:40,680 - INFO -   Trial   3 | AUROC: 0.7664 | best: 0.7702 | boosting: dart  | leaves: 253 | lr: 0.0961
+2026-02-22 18:51:55,596 - INFO -   Trial   4 | AUROC: 0.7687 | best: 0.7702 | boosting: gbdt  | leaves: 274 | lr: 0.0072
+2026-02-22 18:51:55,618 - INFO - Optuna complete. 5/5 trials succeeded.
+2026-02-22 18:51:55,621 - INFO - Best HPO AUROC: 0.7702
+2026-02-22 18:51:55,623 - INFO - Best params: {'boosting_type': 'gbdt', 'num_leaves': 185, 'max_depth': 12, 'learning_rate': 0.005746499650110705, 'n_estimators': 2019, 'min_child_samples': 12, 'colsample_bytree': 0.43903095579116774, 'colsample_bynode': 0.9693313223519999, 'reg_alpha': 1.9312640661491187, 'reg_lambda': 1.6167946962329223, 'min_split_gain': 0.3046137691733707, 'path_smooth': 0.09767211400638387, 'subsample': 0.8421165132560784, 'subsample_freq': 3, 'scale_pos_weight': 4.3457515063601875, 'objective': 'binary', 'metric': 'auc', 'verbosity': -1, 'n_jobs': -1, 'random_state': 42}
+2026-02-22 18:52:06,545 - INFO - Patient-level GroupKFold CV (5 folds) ...
+2026-02-22 18:59:47,210 - INFO -   Fold 1 AUROC: 0.7716  (patients: 151949 train / 37986 val)
+2026-02-22 19:09:21,432 - INFO -   Fold 2 AUROC: 0.7704  (patients: 151948 train / 37987 val)
+2026-02-22 19:18:10,258 - INFO -   Fold 3 AUROC: 0.7723  (patients: 151948 train / 37987 val)
+2026-02-22 19:27:01,375 - INFO -   Fold 4 AUROC: 0.7703  (patients: 151948 train / 37987 val)
+2026-02-22 19:34:48,301 - INFO -   Fold 5 AUROC: 0.7748  (patients: 151947 train / 37988 val)
+2026-02-22 19:34:49,136 - INFO - CV AUROC: 0.7719 ± 0.0017
+2026-02-22 19:34:49,138 - INFO - Training LightGBM ...
+2026-02-22 19:45:22,906 - INFO - LightGBM val AUROC: 0.7702
+2026-02-22 19:45:23,695 - INFO - Training XGBoost ...
+2026-02-22 19:48:27,857 - INFO - XGBoost val AUROC: 0.7679
+2026-02-22 19:48:27,876 - INFO - Fitting meta-learner ...
+2026-02-22 19:48:44,907 - INFO - Meta-learner val AUROC: 0.7702
+2026-02-22 19:48:52,754 - INFO - ECE before calibration: 0.0106 -> after: 0.0000
+2026-02-22 19:48:52,815 - INFO - Threshold strategy='recall80' -> best threshold=0.120
+2026-02-22 19:48:52,928 - INFO - ============================================================
+2026-02-22 19:48:52,929 - INFO - FINAL TEST RESULTS
+2026-02-22 19:48:52,929 - INFO -   AUROC (raw):               0.7654
+2026-02-22 19:48:52,929 - INFO -   AUROC (calibrated):        0.7650
+2026-02-22 19:48:52,929 - INFO -   AUPRC:                     0.4481
+2026-02-22 19:48:52,929 - INFO -   Brier Score:               0.1262
+2026-02-22 19:48:52,930 - INFO -   Log Loss:                  0.4027
+2026-02-22 19:48:52,930 - INFO -   CV AUROC:                  0.7719 ± 0.0017
+2026-02-22 19:48:52,930 - INFO -   Best threshold (val F1):   0.120
+2026-02-22 19:48:52,930 - INFO -   -- Readmit=1 @ threshold 0.120 --
+2026-02-22 19:48:52,930 - INFO -   Recall    (sensitivity):   0.8093
+2026-02-22 19:48:52,931 - INFO -   Precision (PPV):           0.2901
+2026-02-22 19:48:52,931 - INFO -   F1 score:                  0.4271
+2026-02-22 19:48:52,931 - INFO - ============================================================
+2026-02-22 19:58:22,793 - INFO -   Ablation fused         : 0.7671
+2026-02-22 20:03:37,986 - INFO -   Ablation tabular_only  : 0.7689
+2026-02-22 20:04:28,147 - INFO -   Ablation text_only     : 0.5733
+2026-02-22 20:04:28,962 - INFO - Computing SHAP values (3000 samples) ...
+2026-02-22 20:06:13,820 - INFO - SHAP plot saved.
+2026-02-22 20:06:15,276 - INFO - Plots saved -> C:\INTERNSHIP_COURSES\Major-Project\readmission-ai\figures
+2026-02-22 20:06:15,445 - INFO - Predictions saved -> C:\INTERNSHIP_COURSES\Major-Project\readmission-ai\results\test_predictions.csv
+2026-02-22 20:06:17,831 - INFO - Model saved  -> C:\INTERNSHIP_COURSES\Major-Project\readmission-ai\models\trance_framework.pkl
+2026-02-22 20:06:17,833 - INFO - Report saved -> C:\INTERNSHIP_COURSES\Major-Project\readmission-ai\results\training_report.json
