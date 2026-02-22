@@ -19,11 +19,13 @@ MIMIC_BHC_DIR = r"C:\INTERNSHIP_COURSES\Final-Project\physionet.org\files\mimic-
 
 # Processed Data Files
 FEATURES_CSV = os.path.join(DATA_DIR, "ultimate_features.csv")
-EMBEDDINGS_CSV = os.path.join(DATA_DIR, "clinical_t5_embeddings.csv")
+# EMBEDDINGS_CSV = os.path.join(DATA_DIR, "clinical_t5_embeddings.csv")
+EMBEDDINGS_CSV = os.path.join(DATA_DIR, "embeddings.csv")
 
 # Model Files
 MAIN_MODEL_PKL = os.path.join(MODELS_DIR, "trance_framework.pkl")
-EMBEDDING_INFO_PKL = os.path.join(MODELS_DIR, "clinical_t5_info.pkl")
+# EMBEDDING_INFO_PKL = os.path.join(MODELS_DIR, "clinical_t5_info.pkl")
+EMBEDDING_INFO_PKL = os.path.join(MODELS_DIR, "embedding_info.pkl")
 FEATURE_METADATA_JSON = os.path.join(MODELS_DIR, "feature_metadata.json")
 
 # ========================================
@@ -33,9 +35,7 @@ FEATURE_METADATA_JSON = os.path.join(MODELS_DIR, "feature_metadata.json")
 # Text Embedding Models (ordered by preference)
 TEXT_MODEL_CANDIDATES = [
     "luqh/ClinicalT5-base",
-    "emilyalsentzer/Bio_ClinicalBERT",
-    "sentence-transformers/all-MiniLM-L6-v2",
-    "bert-base-uncased"
+    "emilyalsentzer/Bio_ClinicalBERT"
 ]
 
 # Embedding Settings

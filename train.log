@@ -1,0 +1,8 @@
+2026-02-22 18:08:15,901 - INFO - Loading features: C:\INTERNSHIP_COURSES\Major-Project\readmission-ai\data\ultimate_features_pruned.csv
+2026-02-22 18:08:32,394 - INFO - Selected features: 160
+2026-02-22 18:08:52,361 - INFO - Fused shape: (546058, 291)
+2026-02-22 18:09:06,478 - INFO - Feature matrix: (546058, 288) | Positive rate: 18.61%
+2026-02-22 18:09:09,057 - INFO - Train: 383269 | Val: 81206 | Test: 81583
+2026-02-22 18:09:09,059 - INFO - Train readmit: 18.71% | Val: 18.38% | Test: 18.37%
+2026-02-22 18:09:09,060 - INFO - Class imbalance (pos_weight): 4.35
+2026-02-22 18:09:09,505 - INFO - Applying SMOTETomek (before: 71696 pos / 311573 neg, ratio=0.230) ...
