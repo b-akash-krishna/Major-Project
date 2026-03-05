@@ -15,6 +15,7 @@ import logging
 import os
 import random
 import re
+import inspect
 from dataclasses import dataclass
 from typing import Dict, List
 
@@ -196,6 +197,7 @@ class Tokenized:
                 truncation=True,
                 padding=False,
             )
+            model_inputs["labels"] = labels["input_ids"]
         except TypeError:
             if hasattr(self.tokenizer, "as_target_tokenizer"):
                 with self.tokenizer.as_target_tokenizer():
@@ -319,34 +321,43 @@ def main():
     val_tok = val_ds.map(tok, batched=True, remove_columns=["text"])
 
     collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model)
-    args = TrainingArguments(
-        output_dir=os.path.join(FINETUNE_DIR, "checkpoints"),
-        num_train_epochs=TRAIN_EPOCHS,
-        per_device_train_batch_size=TRAIN_BS,
-        per_device_eval_batch_size=TRAIN_BS,
-        gradient_accumulation_steps=GRAD_ACC,
-        learning_rate=LR,
-        warmup_ratio=0.03,
-        weight_decay=0.01,
-        logging_steps=50,
-        evaluation_strategy="steps",
-        eval_steps=200,
-        save_steps=200,
-        save_total_limit=2,
-        fp16=torch.cuda.is_available(),
-        dataloader_num_workers=0,
-        report_to=[],
-        load_best_model_at_end=False,
-    )
+    ta_sig = inspect.signature(TrainingArguments.__init__)
+    eval_key = "evaluation_strategy" if "evaluation_strategy" in ta_sig.parameters else "eval_strategy"
 
-    trainer = Trainer(
-        model=model,
-        args=args,
-        train_dataset=train_tok,
-        eval_dataset=val_tok,
-        data_collator=collator,
-        tokenizer=tokenizer,
-    )
+    args_kwargs = {
+        "output_dir": os.path.join(FINETUNE_DIR, "checkpoints"),
+        "num_train_epochs": TRAIN_EPOCHS,
+        "per_device_train_batch_size": TRAIN_BS,
+        "per_device_eval_batch_size": TRAIN_BS,
+        "gradient_accumulation_steps": GRAD_ACC,
+        "learning_rate": LR,
+        "warmup_ratio": 0.03,
+        "weight_decay": 0.01,
+        "logging_steps": 50,
+        eval_key: "steps",
+        "eval_steps": 200,
+        "save_steps": 200,
+        "save_total_limit": 2,
+        "fp16": torch.cuda.is_available(),
+        "dataloader_num_workers": 0,
+        "report_to": [],
+        "load_best_model_at_end": False,
+    }
+    args = TrainingArguments(**args_kwargs)
+
+    trainer_kwargs = {
+        "model": model,
+        "args": args,
+        "train_dataset": train_tok,
+        "eval_dataset": val_tok,
+        "data_collator": collator,
+    }
+    trainer_sig = inspect.signature(Trainer.__init__)
+    if "tokenizer" in trainer_sig.parameters:
+        trainer_kwargs["tokenizer"] = tokenizer
+    elif "processing_class" in trainer_sig.parameters:
+        trainer_kwargs["processing_class"] = tokenizer
+    trainer = Trainer(**trainer_kwargs)
     trainer.train()
 
     os.makedirs(ADAPTER_DIR, exist_ok=True)
