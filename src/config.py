@@ -161,7 +161,7 @@ EMBED_DIM           = 128   # ← synced with EMBEDDING_DIM
 
 # Encoding parameters — affect quality vs. speed trade-off for text embeddings.
 EMBED_MAX_SEQ_LEN   = 512   # max tokens fed to the transformer
-EMBED_GPU_BATCH     = 4     # batch size on GPU (tune down if OOM)
+EMBED_GPU_BATCH     = 32    # batch size on GPU (RTX 4000 Ada 20GB friendly)
 EMBED_CPU_BATCH     = 8
 
 # Note preprocessing — control how much of each clinical note is used.

@@ -72,6 +72,7 @@ MAX_TEXT_CHARS      = EMBED_MAX_CHARS
 CHUNK_WORDS         = EMBED_CHUNK_WORDS
 CHUNK_OVERLAP       = EMBED_CHUNK_OVERLAP
 MAX_CHUNKS_PER_NOTE = EMBED_MAX_CHUNKS
+NOTES_CACHE_PATH    = os.path.join(DATA_DIR, "embed_cache", "notes_preprocessed.csv.gz")
 
 def _model_candidates() -> List[tuple]:
     # Prioritize local fine-tuned encoder if available.
@@ -138,6 +139,18 @@ def build_file_index(dirs: List[str]) -> Dict[str, str]:
 
 
 def load_notes(cohort_hadm: set, file_index: Dict[str, str]) -> pd.DataFrame:
+    # Fast path: reuse cached preprocessed notes if available
+    if os.path.exists(NOTES_CACHE_PATH):
+        logger.info("Loading cached notes → %s", NOTES_CACHE_PATH)
+        try:
+            cached = pd.read_csv(NOTES_CACHE_PATH, usecols=["hadm_id", "text"])
+            cached = cached[cached["hadm_id"].isin(cohort_hadm)].dropna(subset=["text"])
+            cached = cached[cached["text"].str.len() >= MIN_TEXT_LEN].drop_duplicates("hadm_id")
+            logger.info("  Cached notes matched: %d", len(cached))
+            return cached
+        except Exception as e:
+            logger.warning("Failed to read notes cache, rebuilding. %s", str(e)[:120])
+
     frames = []
 
     # Discharge notes (primary)
@@ -185,6 +198,15 @@ def load_notes(cohort_hadm: set, file_index: Dict[str, str]) -> pd.DataFrame:
             notes = notes.drop(columns=["text_y"])
     notes["text"] = notes["text"].str.strip()
     notes = notes[notes["text"].str.len() >= MIN_TEXT_LEN].drop_duplicates("hadm_id")
+
+    # Save cache for faster restarts
+    try:
+        os.makedirs(os.path.dirname(NOTES_CACHE_PATH), exist_ok=True)
+        notes.to_csv(NOTES_CACHE_PATH, index=False, compression="gzip")
+        logger.info("Saved preprocessed notes cache → %s", NOTES_CACHE_PATH)
+    except Exception as e:
+        logger.warning("Failed to save notes cache: %s", str(e)[:120])
+
     return notes
 
 
@@ -203,12 +225,18 @@ def load_encoder(device: torch.device):
             tokenizer = AutoTokenizer.from_pretrained(model_name)
             dtype = torch.float16 if device.type == "cuda" else torch.float32
 
-            if mtype == "t5" and try_flax:
-                # ClinicalT5 is Flax-only on HuggingFace
-                model = T5EncoderModel.from_pretrained(
-                    model_name, from_flax=True,
-                    dtype=dtype, low_cpu_mem_usage=True
-                ).to(device).eval()
+            if mtype == "t5":
+                if try_flax:
+                    # ClinicalT5 is Flax-only on HuggingFace
+                    model = T5EncoderModel.from_pretrained(
+                        model_name, from_flax=True,
+                        dtype=dtype, low_cpu_mem_usage=True
+                    ).to(device).eval()
+                else:
+                    model = T5EncoderModel.from_pretrained(
+                        model_name,
+                        dtype=dtype, low_cpu_mem_usage=True
+                    ).to(device).eval()
             else:
                 model = AutoModel.from_pretrained(
                     model_name, dtype=dtype, low_cpu_mem_usage=True
@@ -223,6 +251,22 @@ def load_encoder(device: torch.device):
 
     raise RuntimeError("All models failed to load.")
 
+
+from torch.utils.data import Dataset, DataLoader
+
+class NoteDataset(Dataset):
+    def __init__(self, texts: List[str]):
+        self.texts = texts
+
+    def __len__(self):
+        return len(self.texts)
+
+    def __getitem__(self, idx):
+        text = self.texts[idx]
+        chunks = _note_chunks(text)
+        if not chunks:
+            chunks = ["[NO_NOTE]"]
+        return chunks
 
 # ── ENCODING ─────────────────────────────────────────────────────────────────
 
@@ -265,47 +309,70 @@ def _note_chunks(text: str) -> List[str]:
 
 
 def encode_all(model, tokenizer, texts: List[str], device: torch.device,
-               mtype: str, batch_size: int) -> np.ndarray:
+               mtype: str, batch_size: int, cache_dir: str) -> np.ndarray:
     """
-    Encode each admission note using chunked pooling:
-      - split long note into chunks
-      - encode chunks
-      - average chunk embeddings
-    Missing notes get a dedicated token string to preserve a learnable signature.
+    Encode each admission note using DataLoader for efficient processing
+    and chunked pooling. Saves intermediate results to a cache directory 
+    to allow resuming.
     """
+    os.makedirs(cache_dir, exist_ok=True)
     all_emb = []
     n = len(texts)
+    
+    chunk_size = 10000  # Increased to 10k for faster checkpointing with DataLoader
+    for chunk_start in range(0, n, chunk_size):
+        chunk_end = min(chunk_start + chunk_size, n)
+        cache_file = os.path.join(cache_dir, f"emb_chunk_{chunk_start}_{chunk_end}.npy")
+        
+        if os.path.exists(cache_file):
+            logger.info("  Loaded cached chunks [%d:%d]", chunk_start, chunk_end)
+            all_emb.append(np.load(cache_file))
+            continue
+            
+        logger.info("  Processing chunks [%d:%d]", chunk_start, chunk_end)
+        chunk_texts = texts[chunk_start:chunk_end]
+        
+        # DataLoader handles parallel extraction of chunks, though tokenization
+        # still happens mostly sequentially over the batch in this simple setup.
+        # It still reduces Python loop overhead.
+        dataset = NoteDataset(chunk_texts)
+        # Using a custom collate_fn so we just get a list of chunk lists
+        dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4, 
+                                collate_fn=lambda x: x[0])
+        
+        chunk_emb_list = []
 
-    for i, text in enumerate(texts):
-        chunks = _note_chunks(text)
-        if not chunks:
-            chunks = ["[NO_NOTE]"]
+        for i, chunks in enumerate(dataloader):
+            try:
+                emb_parts = []
+                # To maximize GPU utilization, we pass as many chunks as possible
+                # up to batch_size directly to tokenizer
+                for j in range(0, len(chunks), batch_size):
+                    part = chunks[j:j + batch_size]
+                    emb_parts.append(encode_batch(model, tokenizer, part, device, mtype))
+                emb_note = np.vstack(emb_parts).mean(axis=0, keepdims=True)
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    logger.warning("OOM at note %d; trying chunk-by-chunk", chunk_start + i)
+                    if device.type == "cuda":
+                        torch.cuda.empty_cache()
+                    gc.collect()
+                    emb_note = np.vstack(
+                        [encode_batch(model, tokenizer, [c], device, mtype) for c in chunks]
+                    ).mean(axis=0, keepdims=True)
+                else:
+                    raise
 
-        try:
-            emb_parts = []
-            for j in range(0, len(chunks), batch_size):
-                part = chunks[j:j + batch_size]
-                emb_parts.append(encode_batch(model, tokenizer, part, device, mtype))
-            emb_note = np.vstack(emb_parts).mean(axis=0, keepdims=True)
-        except RuntimeError as e:
-            if "out of memory" in str(e).lower():
-                logger.warning("OOM at note %d; trying chunk-by-chunk", i)
-                if device.type == "cuda":
-                    torch.cuda.empty_cache()
-                gc.collect()
-                emb_note = np.vstack(
-                    [encode_batch(model, tokenizer, [c], device, mtype) for c in chunks]
-                ).mean(axis=0, keepdims=True)
-            else:
-                raise
+            chunk_emb_list.append(emb_note.astype(np.float32))
 
-        all_emb.append(emb_note.astype(np.float32))
-
-        if device.type == "cuda" and i % 100 == 0:
+        chunk_emb = np.vstack(chunk_emb_list).astype(np.float32)
+        np.save(cache_file, chunk_emb)
+        all_emb.append(chunk_emb)
+        
+        if device.type == "cuda":
             torch.cuda.empty_cache()
-        if i % 500 == 0:
-            gc.collect()
-            logger.info("  Encoded %d/%d (%.1f%%)", i + 1, n, (i + 1) / n * 100)
+        gc.collect()
+        logger.info("  Saved chunk [%d:%d] (%.1f%% overall)", chunk_start, chunk_end, chunk_end / n * 100)
 
     return np.vstack(all_emb).astype(np.float32)
 
@@ -348,7 +415,8 @@ class EmbeddingPipeline:
             batch_size = GPU_BATCH if device.type == "cuda" else CPU_BATCH
             logger.info("Encoding %d texts with %s (batch=%d) ...", len(texts), model_name_used, batch_size)
 
-            raw = encode_all(model, tokenizer, texts, device, mtype, batch_size)
+            raw = encode_all(model, tokenizer, texts, device, mtype, batch_size,
+                             cache_dir=os.path.join(DATA_DIR, "embed_cache"))
             logger.info("Raw embeddings: %s", raw.shape)
 
             zero_ratio = (raw == 0).mean()
