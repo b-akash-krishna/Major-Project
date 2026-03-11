@@ -358,7 +358,16 @@ def main():
     elif "processing_class" in trainer_sig.parameters:
         trainer_kwargs["processing_class"] = tokenizer
     trainer = Trainer(**trainer_kwargs)
-    trainer.train()
+    
+    # Check for existing checkpoint
+    from transformers.trainer_utils import get_last_checkpoint
+    last_checkpoint = None
+    if os.path.isdir(args.output_dir):
+        last_checkpoint = get_last_checkpoint(args.output_dir)
+        if last_checkpoint is not None:
+            logger.info("Resuming from checkpoint: %s", last_checkpoint)
+
+    trainer.train(resume_from_checkpoint=last_checkpoint)
 
     os.makedirs(ADAPTER_DIR, exist_ok=True)
     model.save_pretrained(ADAPTER_DIR)
