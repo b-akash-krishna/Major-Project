@@ -177,6 +177,9 @@ EMBED_MAX_CHUNKS    = 6     # max chunks per note (limits compute)
 # Optuna hyperparameter search — more trials → better HPO, slower run.
 TRAIN_OPTUNA_TRIALS      = 35
 
+# DART tree cap (DART has no early stopping, so keep bounded).
+TRAIN_DART_MAX_TREES     = 800
+
 # Patient-level GroupKFold splits for cross-validation.
 TRAIN_N_FOLDS            = 5
 
