@@ -17,6 +17,12 @@ MIMIC_BHC_DIR = "/home/csnn04/S8-MP/Major-Project/readmission-ai/data/physionet.
 
 # Note: MIMIC_NOTE_PATH is typically found in MIMIC_NOTE_DIR/note/discharge.csv.gz
 
+# Local Clinical-T5 models (PhysioNet download)
+CLINICAL_T5_ROOT = os.path.join(BASE_DIR, "physionet.org", "files", "clinical-t5", "1.0.0")
+CLINICAL_T5_BASE_DIR = os.path.join(CLINICAL_T5_ROOT, "Clinical-T5-Base")
+CLINICAL_T5_LARGE_DIR = os.path.join(CLINICAL_T5_ROOT, "Clinical-T5-Large")
+CLINICAL_T5_SCI_DIR = os.path.join(CLINICAL_T5_ROOT, "Clinical-T5-Sci")
+
 # Processed Data Files
 FEATURES_CSV = os.path.join(DATA_DIR, "ultimate_features.csv")
 # EMBEDDINGS_CSV = os.path.join(DATA_DIR, "clinical_t5_embeddings.csv")
@@ -34,6 +40,9 @@ FEATURE_METADATA_JSON = os.path.join(MODELS_DIR, "feature_metadata.json")
 
 # Text Embedding Models (ordered by preference)
 TEXT_MODEL_CANDIDATES = [
+    CLINICAL_T5_LARGE_DIR,
+    CLINICAL_T5_BASE_DIR,
+    CLINICAL_T5_SCI_DIR,
     "luqh/ClinicalT5-base",
     "emilyalsentzer/Bio_ClinicalBERT"
 ]
@@ -175,7 +184,7 @@ EMBED_MAX_CHUNKS    = 6     # max chunks per note (limits compute)
 # 8. TRAINING SETTINGS  (03_train.py)
 # ========================================
 # Optuna hyperparameter search — more trials → better HPO, slower run.
-TRAIN_OPTUNA_TRIALS      = 35
+TRAIN_OPTUNA_TRIALS      = 75
 
 # DART tree cap (DART has no early stopping, so keep bounded).
 TRAIN_DART_MAX_TREES     = 800
@@ -196,11 +205,14 @@ TRAIN_BLEND_TRIALS       = 500
 
 # How many of the highest-variance ct5_* embedding dimensions to keep.
 # Reduces embedding noise; set to EMBED_DIM to keep all.
-TRAIN_CT5_KEEP_DIMS      = 96
+TRAIN_CT5_KEEP_DIMS      = 128
 
 # Candidate feature-count subsets evaluated during auto feature selection.
 # The one giving highest val AUROC is chosen.
-TRAIN_FEATURE_SUBSETS    = [96, 128, 160, 220, 300]
+TRAIN_FEATURE_SUBSETS    = [128, 160, 220, 259]
+
+# Enable stacked ensemble (LightGBM + XGBoost [+ CatBoost if installed])
+TRAIN_ENABLE_STACK       = True
 
 # Logistic meta-learner C regularisation search space.
 TRAIN_META_C_CANDIDATES  = [0.3, 1.0, 3.0, 10.0]

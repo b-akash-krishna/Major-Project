@@ -44,12 +44,14 @@ logger = logging.getLogger(__name__)
 MODEL_ENV = os.getenv("CLINICAL_T5_MODEL")
 BASE_MODEL = MODEL_ENV or "luqh/ClinicalT5-base"
 FALLBACK_BASE_MODEL = os.getenv("CLINICAL_T5_FALLBACK_MODEL", "t5-base")
-MAX_TRAIN_SAMPLES = 60_000
+MAX_TRAIN_SAMPLES = int(os.getenv("CLINICAL_T5_MAX_SAMPLES", "60000"))
 MAX_TEXT_CHARS = 3000
 MIN_TEXT_LEN = 80
-TRAIN_EPOCHS = 2
-TRAIN_BS = 2
-GRAD_ACC = 8
+TRAIN_EPOCHS = int(os.getenv("CLINICAL_T5_EPOCHS", "2"))
+TRAIN_BS = int(os.getenv("CLINICAL_T5_BATCH", "2"))
+GRAD_ACC = int(os.getenv("CLINICAL_T5_GRAD_ACC", "8"))
+RESUME_CHECKPOINTS = os.getenv("CLINICAL_T5_RESUME", "0") == "1"
+STRICT_MODEL_LOAD = os.getenv("CLINICAL_T5_STRICT", "1") == "1"
 LR = 2e-4
 MAX_INPUT_LEN = 512
 MAX_TARGET_LEN = 192
@@ -64,8 +66,12 @@ ENCODER_DIR = os.path.join(FINETUNE_DIR, "encoder")
 INFO_JSON = os.path.join(FINETUNE_DIR, "info.json")
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOCAL_CT5_CANDIDATES = [
+    os.path.join(PROJECT_ROOT, "physionet.org", "files", "clinical-t5", "1.0.0", "Clinical-T5-Large"),
     os.path.join(PROJECT_ROOT, "physionet.org", "files", "clinical-t5", "1.0.0", "Clinical-T5-Base"),
+    os.path.join(PROJECT_ROOT, "physionet.org", "files", "clinical-t5", "1.0.0", "Clinical-T5-Sci"),
+    os.path.join(PROJECT_ROOT, "data", "physionet.org", "files", "clinical-t5", "1.0.0", "Clinical-T5-Large"),
     os.path.join(PROJECT_ROOT, "data", "physionet.org", "files", "clinical-t5", "1.0.0", "Clinical-T5-Base"),
+    os.path.join(PROJECT_ROOT, "data", "physionet.org", "files", "clinical-t5", "1.0.0", "Clinical-T5-Sci"),
 ]
 
 SECTIONS = [
@@ -134,6 +140,10 @@ def _select_base_model() -> str:
             logger.info("Using local ClinicalT5 weights from %s", cand)
             return cand
     return BASE_MODEL
+
+
+def _is_local_path(path: str) -> bool:
+    return os.path.isdir(path) or os.path.exists(path)
 
 
 def build_file_index(dirs: List[str]) -> Dict[str, str]:
@@ -212,9 +222,10 @@ class Tokenized:
         return model_inputs
 
 
-def _load_t5_seq2seq(model_name: str) -> tuple[T5ForConditionalGeneration, str]:
+def _load_t5_seq2seq(model_name: str, local_files_only: bool = False) -> tuple[T5ForConditionalGeneration, str]:
     kwargs = {
         "torch_dtype": torch.float16 if torch.cuda.is_available() else torch.float32,
+        "local_files_only": local_files_only,
     }
     # Try native PyTorch/safetensors first.
     try:
@@ -224,7 +235,9 @@ def _load_t5_seq2seq(model_name: str) -> tuple[T5ForConditionalGeneration, str]:
             raise
     # Then try Flax conversion if the repo is Flax-only.
     try:
-        return T5ForConditionalGeneration.from_pretrained(model_name, from_flax=True, **kwargs), model_name
+        return T5ForConditionalGeneration.from_pretrained(
+            model_name, from_flax=True, **kwargs
+        ), model_name
     except OSError as e:
         if "does not appear to have a file named" not in str(e):
             raise
@@ -240,15 +253,18 @@ def _load_t5_seq2seq(model_name: str) -> tuple[T5ForConditionalGeneration, str]:
         )
 
 
-def _load_t5_encoder(model_name: str) -> T5EncoderModel:
+def _load_t5_encoder(model_name: str, local_files_only: bool = False) -> T5EncoderModel:
     kwargs = {
         "torch_dtype": torch.float16 if torch.cuda.is_available() else torch.float32,
+        "local_files_only": local_files_only,
     }
     try:
         return T5EncoderModel.from_pretrained(model_name, **kwargs)
     except OSError:
         try:
-            return T5EncoderModel.from_pretrained(model_name, from_flax=True, **kwargs)
+            return T5EncoderModel.from_pretrained(
+                model_name, from_flax=True, **kwargs
+            )
         except OSError:
             logger.warning(
                 "Encoder '%s' not loadable; using fallback encoder '%s'.",
@@ -263,7 +279,7 @@ def export_merged_encoder(
     tokenizer: AutoTokenizer,
     source_model_name: str,
 ) -> None:
-    encoder = _load_t5_encoder(source_model_name)
+    encoder = _load_t5_encoder(source_model_name, local_files_only=_is_local_path(source_model_name))
     full_state = merged_seq2seq.state_dict()
     enc_state = {k.replace("encoder.", "", 1): v for k, v in full_state.items() if k.startswith("encoder.")}
     missing, unexpected = encoder.load_state_dict(enc_state, strict=False)
@@ -291,10 +307,15 @@ def main():
 
     requested_model = _select_base_model()
     resolved_model_name = requested_model
-    tokenizer = AutoTokenizer.from_pretrained(requested_model)
+    local_only = _is_local_path(requested_model)
+    tokenizer = AutoTokenizer.from_pretrained(requested_model, local_files_only=local_only)
     try:
-        base_model, resolved_model_name = _load_t5_seq2seq(requested_model)
-    except Exception:
+        base_model, resolved_model_name = _load_t5_seq2seq(requested_model, local_files_only=local_only)
+    except Exception as e:
+        if STRICT_MODEL_LOAD and local_only:
+            raise RuntimeError(
+                f"Failed to load local Clinical-T5 model at {requested_model}: {e}"
+            ) from e
         # If tokenizer/model pair is inconsistent in the source repo, use fallback both sides.
         resolved_model_name = FALLBACK_BASE_MODEL
         logger.warning(
@@ -359,15 +380,15 @@ def main():
         trainer_kwargs["processing_class"] = tokenizer
     trainer = Trainer(**trainer_kwargs)
     
-    # Check for existing checkpoint
+    # Check for existing checkpoint (opt-in)
     from transformers.trainer_utils import get_last_checkpoint
     last_checkpoint = None
-    if os.path.isdir(args.output_dir):
+    if RESUME_CHECKPOINTS and os.path.isdir(args.output_dir):
         last_checkpoint = get_last_checkpoint(args.output_dir)
         if last_checkpoint is not None:
             logger.info("Resuming from checkpoint: %s", last_checkpoint)
 
-    trainer.train(resume_from_checkpoint=last_checkpoint)
+    trainer.train(resume_from_checkpoint=last_checkpoint if RESUME_CHECKPOINTS else None)
 
     os.makedirs(ADAPTER_DIR, exist_ok=True)
     model.save_pretrained(ADAPTER_DIR)

@@ -126,6 +126,7 @@ try:
         TRAIN_TEST_FRAC, TRAIN_VAL_FRAC, TRAIN_SMOTE_RATIO,
         TRAIN_BLEND_TRIALS, TRAIN_CT5_KEEP_DIMS, TRAIN_FEATURE_SUBSETS,
         TRAIN_META_C_CANDIDATES, TRAIN_THRESHOLD_STRATEGY,
+        TRAIN_ENABLE_STACK,
         TRAIN_OPTIMIZE_AUROC, TRAIN_HPO_ALPHA_AUPRC,
     )
     from .plot_style import apply_publication_style, save_publication_figure
@@ -138,6 +139,7 @@ except ImportError:
         TRAIN_TEST_FRAC, TRAIN_VAL_FRAC, TRAIN_SMOTE_RATIO,
         TRAIN_BLEND_TRIALS, TRAIN_CT5_KEEP_DIMS, TRAIN_FEATURE_SUBSETS,
         TRAIN_META_C_CANDIDATES, TRAIN_THRESHOLD_STRATEGY,
+        TRAIN_ENABLE_STACK,
         TRAIN_OPTIMIZE_AUROC, TRAIN_HPO_ALPHA_AUPRC,
     )
     from plot_style import apply_publication_style, save_publication_figure
@@ -163,7 +165,7 @@ SELECTED_FEATURES_JSON = os.path.join(MODELS_DIR, "selected_features.json")
 OPTUNA_TRIALS            = TRAIN_OPTUNA_TRIALS
 N_FOLDS                  = TRAIN_N_FOLDS
 DART_MAX_TREES           = TRAIN_DART_MAX_TREES
-ENABLE_STACK             = False   # Keep architecture: ClinicalT5 + LightGBM only
+ENABLE_STACK             = TRAIN_ENABLE_STACK
 ENABLE_SMOTE             = CFG_ENABLE_SMOTE
 TEST_FRAC                = TRAIN_TEST_FRAC
 VAL_FRAC                 = TRAIN_VAL_FRAC

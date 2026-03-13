@@ -39,6 +39,7 @@ try:
     from .config import (
         DATA_DIR, EMBEDDINGS_CSV, EMBEDDING_INFO_PKL,
         FEATURES_CSV, MIMIC_BHC_DIR, MIMIC_NOTE_DIR, RANDOM_STATE,
+        CLINICAL_T5_LARGE_DIR, CLINICAL_T5_BASE_DIR, CLINICAL_T5_SCI_DIR,
         EMBED_DIM, EMBED_MAX_SEQ_LEN, EMBED_GPU_BATCH, EMBED_CPU_BATCH,
         EMBED_MIN_TEXT_LEN, EMBED_MAX_CHARS, EMBED_CHUNK_WORDS,
         EMBED_CHUNK_OVERLAP, EMBED_MAX_CHUNKS,
@@ -47,6 +48,7 @@ except ImportError:
     from config import (
         DATA_DIR, EMBEDDINGS_CSV, EMBEDDING_INFO_PKL,
         FEATURES_CSV, MIMIC_BHC_DIR, MIMIC_NOTE_DIR, RANDOM_STATE,
+        CLINICAL_T5_LARGE_DIR, CLINICAL_T5_BASE_DIR, CLINICAL_T5_SCI_DIR,
         EMBED_DIM, EMBED_MAX_SEQ_LEN, EMBED_GPU_BATCH, EMBED_CPU_BATCH,
         EMBED_MIN_TEXT_LEN, EMBED_MAX_CHARS, EMBED_CHUNK_WORDS,
         EMBED_CHUNK_OVERLAP, EMBED_MAX_CHUNKS,
@@ -75,8 +77,14 @@ MAX_CHUNKS_PER_NOTE = EMBED_MAX_CHUNKS
 NOTES_CACHE_PATH    = os.path.join(DATA_DIR, "embed_cache", "notes_preprocessed.csv.gz")
 
 def _model_candidates() -> List[tuple]:
-    # Prioritize local fine-tuned encoder if available.
+    # Prioritize local Clinical-T5 models (Large > Base > Sci), then finetuned encoder.
     cand: List[tuple] = []
+    if os.path.exists(os.path.join(CLINICAL_T5_LARGE_DIR, "config.json")):
+        cand.append((CLINICAL_T5_LARGE_DIR, "t5", False))
+    if os.path.exists(os.path.join(CLINICAL_T5_BASE_DIR, "config.json")):
+        cand.append((CLINICAL_T5_BASE_DIR, "t5", False))
+    if os.path.exists(os.path.join(CLINICAL_T5_SCI_DIR, "config.json")):
+        cand.append((CLINICAL_T5_SCI_DIR, "t5", False))
     if os.path.exists(os.path.join(FINETUNED_ENCODER_DIR, "config.json")):
         cand.append((FINETUNED_ENCODER_DIR, "t5", False))
     cand.extend([
