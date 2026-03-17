@@ -77,16 +77,16 @@ MAX_CHUNKS_PER_NOTE = EMBED_MAX_CHUNKS
 NOTES_CACHE_PATH    = os.path.join(DATA_DIR, "embed_cache", "notes_preprocessed.csv.gz")
 
 def _model_candidates() -> List[tuple]:
-    # Prioritize local Clinical-T5 models (Large > Base > Sci), then finetuned encoder.
+    # Prioritize finetuned encoder first, then local Clinical-T5 models (Large > Base > Sci).
     cand: List[tuple] = []
+    if os.path.exists(os.path.join(FINETUNED_ENCODER_DIR, "config.json")):
+        cand.append((FINETUNED_ENCODER_DIR, "t5", False))
     if os.path.exists(os.path.join(CLINICAL_T5_LARGE_DIR, "config.json")):
         cand.append((CLINICAL_T5_LARGE_DIR, "t5", False))
     if os.path.exists(os.path.join(CLINICAL_T5_BASE_DIR, "config.json")):
         cand.append((CLINICAL_T5_BASE_DIR, "t5", False))
     if os.path.exists(os.path.join(CLINICAL_T5_SCI_DIR, "config.json")):
         cand.append((CLINICAL_T5_SCI_DIR, "t5", False))
-    if os.path.exists(os.path.join(FINETUNED_ENCODER_DIR, "config.json")):
-        cand.append((FINETUNED_ENCODER_DIR, "t5", False))
     cand.extend([
         ("luqh/ClinicalT5-base", "t5", True),    # HF Flax weights
         ("emilyalsentzer/Bio_ClinicalBERT", "bert", False),
