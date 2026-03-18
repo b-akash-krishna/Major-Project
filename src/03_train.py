@@ -1,7 +1,7 @@
 # src/03_train.py
 """
-TRANCE Framework — Training Pipeline v3
-========================================
+TRANCE Framework — Training Pipeline v3.1
+==========================================
 
 INPUT FILES (all auto-discovered via config.py):
   • data/ultimate_features_pruned.csv   — structured EHR features (from 01b)
@@ -39,6 +39,13 @@ OTHER IMPROVEMENTS (v3 vs v2):
   • Isotonic calibration (ECE logged before/after)
   • test_predictions.csv for downstream analysis
   • train.log written alongside models/
+
+FIXES (v3.1 vs v3):
+  • _set_seed() no longer mutates global RANDOM_STATE — seed passed explicitly
+    into the patient split RNG so each multi-seed run shuffles correctly.
+  • fit_meta_learner() meta-LR now scored via 5-fold OOF cross_val_predict
+    instead of in-sample evaluation, preventing it from always "winning"
+    stacker selection even when it would underperform on test data.
 """
 
 import gc
@@ -73,7 +80,7 @@ from sklearn.metrics import (
     roc_auc_score,
     roc_curve,
 )
-from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import GroupKFold, cross_val_predict
 
 # Fix Windows console encoding (cp1252 can't handle Unicode arrows/boxes)
 import sys
@@ -87,10 +94,12 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)  # suppress Optuna internal
 
 
 def _set_seed(seed: int) -> None:
-    global RANDOM_STATE
-    RANDOM_STATE = int(seed)
-    np.random.seed(RANDOM_STATE)
-    random.seed(RANDOM_STATE)
+    # Do NOT mutate the module-level RANDOM_STATE — load_data() uses it for
+    # the patient split and must read the same value that was set before the
+    # call. We set numpy/random seeds here; the seed value is passed explicitly
+    # into all functions that need it rather than relying on a shared global.
+    np.random.seed(int(seed))
+    random.seed(int(seed))
 
 
 def _optuna_callback(study: "optuna.Study", trial: "optuna.trial.FrozenTrial") -> None:
@@ -507,7 +516,7 @@ def optimize_lgbm(
         callbacks=[_optuna_callback],
         catch=(Exception,),  # log failed trials but don't abort the whole study
     )
-    logger.info("Optuna complete. %d/%d trials succeeded.", 
+    logger.info("Optuna complete. %d/%d trials succeeded.",
                 len([t for t in study.trials if t.value is not None]), n_trials)
 
     best = study.best_params.copy()
@@ -726,15 +735,15 @@ def fit_meta_learner(
     Selects the best stacker on validation data among:
       1) simple mean
       2) optimized weighted blend
-      3) logistic meta-learner
+      3) logistic meta-learner (scored via OOF cross_val_predict — not in-sample)
     Returns meta model (if selected), val probs, test probs, and diagnostics.
     """
     val_stack = np.column_stack([m.predict_proba(X_val)[:, 1] for _, m in models])
-    te_stack = np.column_stack([m.predict_proba(X_te)[:, 1] for _, m in models])
+    te_stack  = np.column_stack([m.predict_proba(X_te)[:, 1]  for _, m in models])
 
     if len(models) < 2:
         p_val = val_stack[:, 0]
-        p_te = te_stack[:, 0]
+        p_te  = te_stack[:, 0]
         return None, p_val, p_te, {"selected_stacker": "single_model"}
 
     candidates: Dict[str, Tuple[np.ndarray, np.ndarray, Optional[LogisticRegression]]] = {}
@@ -755,40 +764,52 @@ def fit_meta_learner(
             None,
         )
 
-    # Candidate 3: logistic meta-learner with light C search
-    best_meta = None
+    # Candidate 3: logistic meta-learner with light C search.
+    # FIX: evaluate using 5-fold OOF cross_val_predict so the meta-LR score is
+    # out-of-sample. The old code scored meta.predict_proba(val_stack) after
+    # fitting on val_stack — pure in-sample, always winning stacker selection
+    # even when it would underperform on test data.
+    best_meta       = None
     best_meta_score = -np.inf
-    best_meta_val = None
-    best_meta_te = None
+    best_meta_val   = None
+    best_meta_te    = None
     for c in TRAIN_META_C_CANDIDATES:
         meta = LogisticRegression(C=c, max_iter=2000, random_state=RANDOM_STATE)
-        meta.fit(val_stack, y_val)
-        p_val = meta.predict_proba(val_stack)[:, 1]
-        p_te = meta.predict_proba(te_stack)[:, 1]
-        sc = composite_rank_score(y_val, p_val)
+        try:
+            # cross_val_predict gives honest OOF probabilities on val_stack
+            p_val_oof = cross_val_predict(
+                meta, val_stack, y_val, cv=5, method="predict_proba"
+            )[:, 1]
+            sc = composite_rank_score(y_val, p_val_oof)
+        except Exception as e:
+            logger.warning("Meta-LR OOF eval failed (C=%.4f): %s — skipping.", c, e)
+            continue
         if sc > best_meta_score:
             best_meta_score = sc
-            best_meta = meta
-            best_meta_val = p_val
-            best_meta_te = p_te
-    candidates["meta_lr"] = (best_meta_val, best_meta_te, best_meta)
+            # Refit on full val_stack for final test prediction
+            meta.fit(val_stack, y_val)
+            best_meta     = meta
+            best_meta_val = p_val_oof                        # honest OOF val probs
+            best_meta_te  = meta.predict_proba(te_stack)[:, 1]
+    if best_meta is not None:
+        candidates["meta_lr"] = (best_meta_val, best_meta_te, best_meta)
 
     # Select highest composite score on validation
-    best_name = None
+    best_name  = None
     best_score = -np.inf
-    best_val = None
-    best_te = None
+    best_val   = None
+    best_te    = None
     best_model = None
     for name, (p_val, p_te, m) in candidates.items():
-        sc = composite_rank_score(y_val, p_val)
+        sc  = composite_rank_score(y_val, p_val)
         auc = roc_auc_score(y_val, p_val)
-        ap = average_precision_score(y_val, p_val)
+        ap  = average_precision_score(y_val, p_val)
         logger.info("Stacker %-15s | score: %.4f | AUROC: %.4f | AUPRC: %.4f", name, sc, auc, ap)
         if sc > best_score:
             best_name, best_score, best_val, best_te, best_model = name, sc, p_val, p_te, m
 
     return best_model, best_val, best_te, {
-        "selected_stacker": best_name,
+        "selected_stacker":    best_name,
         "val_composite_score": float(best_score),
     }
 
@@ -820,27 +841,27 @@ def calibrate(
 
     iso = IsotonicRegression(out_of_bounds="clip")
     iso.fit(val_probs, y_val)
-    val_iso = iso.predict(val_probs)
+    val_iso  = iso.predict(val_probs)
     test_iso = iso.predict(test_probs).astype(np.float32)
     brier_iso = brier_score_loss(y_val, val_iso)
-    ll_iso = log_loss(y_val, np.clip(val_iso, 1e-6, 1 - 1e-6))
+    ll_iso    = log_loss(y_val, np.clip(val_iso, 1e-6, 1 - 1e-6))
 
     platt = LogisticRegression(C=1.0, max_iter=1000, random_state=RANDOM_STATE)
     platt.fit(val_probs.reshape(-1, 1), y_val)
-    val_platt = platt.predict_proba(val_probs.reshape(-1, 1))[:, 1]
+    val_platt  = platt.predict_proba(val_probs.reshape(-1, 1))[:, 1]
     test_platt = platt.predict_proba(test_probs.reshape(-1, 1))[:, 1].astype(np.float32)
     brier_platt = brier_score_loss(y_val, val_platt)
-    ll_platt = log_loss(y_val, np.clip(val_platt, 1e-6, 1 - 1e-6))
+    ll_platt    = log_loss(y_val, np.clip(val_platt, 1e-6, 1 - 1e-6))
 
     use_iso = (brier_iso < brier_platt) or (abs(brier_iso - brier_platt) < 1e-6 and ll_iso <= ll_platt)
     if use_iso:
-        chosen = "isotonic"
-        cal = iso
+        chosen   = "isotonic"
+        cal      = iso
         test_cal = test_iso
         ece_after = _ece(val_iso, y_val)
     else:
-        chosen = "platt"
-        cal = PlattCalibrator(platt)
+        chosen   = "platt"
+        cal      = PlattCalibrator(platt)
         test_cal = test_platt
         ece_after = _ece(val_platt, y_val)
 
@@ -903,24 +924,21 @@ def _binary_metrics(y_true: np.ndarray, probs: np.ndarray, threshold: float) -> 
     tn = int(((preds == 0) & (y_true == 0)).sum())
     fp = int(((preds == 1) & (y_true == 0)).sum())
     fn = int(((preds == 0) & (y_true == 1)).sum())
-    recall = tp / max(tp + fn, 1)
-    precision = tp / max(tp + fp, 1)
+    recall      = tp / max(tp + fn, 1)
+    precision   = tp / max(tp + fp, 1)
     specificity = tn / max(tn + fp, 1)
-    accuracy = (tp + tn) / max(tp + tn + fp + fn, 1)
-    f1 = f1_score(y_true, preds, zero_division=0)
+    accuracy    = (tp + tn) / max(tp + tn + fp + fn, 1)
+    f1  = f1_score(y_true, preds, zero_division=0)
     mcc = matthews_corrcoef(y_true, preds)
     return {
-        "threshold": float(threshold),
-        "accuracy": float(accuracy),
-        "recall": float(recall),
-        "precision": float(precision),
+        "threshold":   float(threshold),
+        "accuracy":    float(accuracy),
+        "recall":      float(recall),
+        "precision":   float(precision),
         "specificity": float(specificity),
-        "f1": float(f1),
-        "mcc": float(mcc),
-        "tp": tp,
-        "tn": tn,
-        "fp": fp,
-        "fn": fn,
+        "f1":          float(f1),
+        "mcc":         float(mcc),
+        "tp": tp, "tn": tn, "fp": fp, "fn": fn,
     }
 
 
@@ -932,10 +950,10 @@ def summarize_operating_points(
 ) -> Dict[str, Dict[str, float]]:
     """Threshold profiles selected on validation, measured on test."""
     thresholds = {
-        "mcc": find_best_threshold(val_probs_cal, y_val, "mcc"),
-        "f1": find_best_threshold(val_probs_cal, y_val, "f1"),
+        "mcc":      find_best_threshold(val_probs_cal, y_val, "mcc"),
+        "f1":       find_best_threshold(val_probs_cal, y_val, "f1"),
         "recall80": find_best_threshold(val_probs_cal, y_val, "recall80"),
-        "j": find_best_threshold(val_probs_cal, y_val, "j"),
+        "j":        find_best_threshold(val_probs_cal, y_val, "j"),
     }
     return {k: _binary_metrics(y_te, test_probs_cal, t) for k, t in thresholds.items()}
 
@@ -984,7 +1002,7 @@ def save_plots(
     ax.legend()
     save_publication_figure(fig, os.path.join(FIGURES_DIR, "calibration_curve.png"))
 
-    # -- Threshold analysis -----------------------------------------------------
+    # -- Threshold analysis ----------------------------------------------------
     thresholds = np.arange(0.05, 0.70, 0.01)
     f1s, recs, precs = [], [], []
     for t in thresholds:
@@ -1122,7 +1140,9 @@ class TRANCETrainer:
                 .groupby("subject_id", as_index=False)["time_key"].min()
             sorted_pats = pat_first.sort_values(["time_key", "subject_id"])["subject_id"].tolist()
         else:
-            rng = np.random.RandomState(RANDOM_STATE)
+            # FIX: use seed directly so each multi-seed run gets a reproducibly
+            # different shuffle, independent of the module-level RANDOM_STATE.
+            rng = np.random.RandomState(seed)
             sorted_pats = list(groups.drop_duplicates().values)
             rng.shuffle(sorted_pats)
             logger.info("Patient-level random split enabled (USE_TEMPORAL_SPLIT=False).")
@@ -1266,10 +1286,10 @@ class TRANCETrainer:
                 )
                 compute_shap(primary, pd.DataFrame(X_te[idx], columns=self.features))
 
-            # -- 13. Plots -----------------------------------------------------
+            # -- 13. Plots -------------------------------------------------
             save_plots(y_te, test_probs_raw, test_probs_cal, self.best_threshold)
 
-            # -- 14. Predictions CSV -------------------------------------------
+            # -- 14. Predictions CSV ---------------------------------------
             pred_df = pd.DataFrame({
                 "y_true":   y_te,
                 "prob_raw": test_probs_raw.round(6),
@@ -1292,8 +1312,8 @@ class TRANCETrainer:
             "best_threshold":     round(self.best_threshold, 3),
             "threshold_strategy": THRESHOLD_STRATEGY,
             "calibration_method": calibration_method,
-            "smote_enabled": ENABLE_SMOTE,
-            "feature_subset": feature_subset_info,
+            "smote_enabled":      ENABLE_SMOTE,
+            "feature_subset":     feature_subset_info,
             "recall_readmit1":    round(recall_pos, 4),
             "precision_readmit1": round(prec_pos,   4),
             "f1_readmit1":        round(f1_pos,     4),
@@ -1327,14 +1347,14 @@ class TRANCETrainer:
             self._X_train_means = {}
 
         results.update({
-            "seed": seed,
-            "val_probs_raw": val_probs_for_cal,
+            "seed":           seed,
+            "val_probs_raw":  val_probs_for_cal,
             "test_probs_raw": test_probs_raw,
-            "y_val": y_val,
-            "y_te": y_te,
-            "cv_auroc_mean": cv_mean,
-            "cv_auroc_std": cv_std,
-            "stack_info": stack_info,
+            "y_val":          y_val,
+            "y_te":           y_te,
+            "cv_auroc_mean":  cv_mean,
+            "cv_auroc_std":   cv_std,
+            "stack_info":     stack_info,
         })
         return results
 
@@ -1361,9 +1381,9 @@ class TRANCETrainer:
             return final
 
         # Average predictions across seeds
-        y_val = seed_results[0]["y_val"]
-        y_te  = seed_results[0]["y_te"]
-        val_probs_raw = np.mean([r["val_probs_raw"] for r in seed_results], axis=0)
+        y_val  = seed_results[0]["y_val"]
+        y_te   = seed_results[0]["y_te"]
+        val_probs_raw  = np.mean([r["val_probs_raw"]  for r in seed_results], axis=0)
         test_probs_raw = np.mean([r["test_probs_raw"] for r in seed_results], axis=0)
 
         self.calibrator, test_probs_cal, calibration_method = calibrate(
@@ -1397,12 +1417,12 @@ class TRANCETrainer:
             "brier_score":        round(brier,      4),
             "log_loss":           round(ll,         4),
             "cv_auroc_mean":      round(np.mean([r["cv_auroc_mean"] for r in seed_results]), 4),
-            "cv_auroc_std":       round(np.mean([r["cv_auroc_std"] for r in seed_results]), 4),
+            "cv_auroc_std":       round(np.mean([r["cv_auroc_std"]  for r in seed_results]), 4),
             "best_threshold":     round(self.best_threshold, 3),
             "threshold_strategy": THRESHOLD_STRATEGY,
             "calibration_method": calibration_method,
-            "smote_enabled": ENABLE_SMOTE,
-            "feature_subset": seed_results[0].get("feature_subset", {"enabled": False}),
+            "smote_enabled":      ENABLE_SMOTE,
+            "feature_subset":     seed_results[0].get("feature_subset", {"enabled": False}),
             "recall_readmit1":    round(recall_pos, 4),
             "precision_readmit1": round(prec_pos,   4),
             "f1_readmit1":        round(f1_pos,     4),
@@ -1420,7 +1440,7 @@ class TRANCETrainer:
                 for k, v in (best_params or {}).items()
             },
             "timestamp": datetime.now().isoformat(),
-            "seeds": seeds,
+            "seeds":      seeds,
         }
 
         # Save averaged predictions
