@@ -196,7 +196,7 @@ EMBED_FUSION_MODELS = [
 # 8. TRAINING SETTINGS  (03_train.py)
 # ========================================
 # Optuna hyperparameter search — more trials → better HPO, slower run.
-TRAIN_OPTUNA_TRIALS      = 5
+TRAIN_OPTUNA_TRIALS      = 80
 
 # DART tree cap (DART has no early stopping, so keep bounded).
 TRAIN_DART_MAX_TREES     = 800
