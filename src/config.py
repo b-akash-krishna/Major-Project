@@ -196,6 +196,7 @@ EMBED_FUSION_MODELS = [
 # 8. TRAINING SETTINGS  (03_train.py)
 # ========================================
 # Optuna hyperparameter search — more trials → better HPO, slower run.
+TRAIN_OPTUNA_TRIALS      = 50  # was 200; plateaued at 50 in previous run
 TRAIN_OPTUNA_TRIALS      = 100
 
 # DART tree cap (DART has no early stopping, so keep bounded).
@@ -213,7 +214,7 @@ TRAIN_VAL_FRAC           = 0.15
 TRAIN_SMOTE_RATIO        = 0.35
 
 # Weighted blend optimisation — random search budget over ensemble weights.
-TRAIN_BLEND_TRIALS       = 500
+TRAIN_BLEND_TRIALS       = 1000  # was 500
 
 # How many of the highest-variance ct5_* embedding dimensions to keep.
 # Reduces embedding noise; set to EMBED_DIM to keep all.
@@ -227,23 +228,23 @@ TRAIN_FEATURE_SUBSETS    = [128, 160, 220, 259]
 TRAIN_ENABLE_STACK       = True
 
 # Auto feature subset search toggle
-TRAIN_ENABLE_AUTO_FEATURE_SUBSET = False
+TRAIN_ENABLE_AUTO_FEATURE_SUBSET = True  # was False; searches best feature count
 
 # Multi-seed ensembling
 TRAIN_SEEDS = [42, 2024, 777]
 TRAIN_HPO_ONCE = True
 
 # Logistic meta-learner C regularisation search space.
-TRAIN_META_C_CANDIDATES  = [0.3, 1.0, 3.0, 10.0]
+TRAIN_META_C_CANDIDATES  = [0.1, 0.3, 1.0, 3.0, 10.0, 30.0]  # was [0.3, 1.0, 3.0, 10.0]
 
 # Decision threshold strategy: "f1" | "recall80" | "j" (Youden-J) | "mcc"
 TRAIN_THRESHOLD_STRATEGY = "mcc"
 
 # HPO objective: True = maximise AUROC; False = composite(AUROC, AUPRC).
-TRAIN_OPTIMIZE_AUROC     = True
+TRAIN_OPTIMIZE_AUROC     = True  # Directly optimize for AUROC to beat 0.80
 
 # AUPRC weight in composite objective (used when TRAIN_OPTIMIZE_AUROC=False).
-TRAIN_HPO_ALPHA_AUPRC    = 0.35
+TRAIN_HPO_ALPHA_AUPRC    = 0.25  # was 0.35; less weight on AUPRC when chasing AUROC
 
 # ========================================
 # 9. ANALYSIS SETTINGS  (05_analyze.py)
@@ -267,6 +268,11 @@ GATE_EPOCHS = 100            # max epochs, early stopping will cut this short
 GATE_PATIENCE = 10           # early stopping patience on val AUROC
 GATE_SEEDS = [42, 2024, 777] # seeds for multi-seed ensemble
 
+# Gate SHAP (optional; can be slow on CPU)
+GATE_ENABLE_SHAP = False
+GATE_SHAP_N_BACKGROUND = 128
+GATE_SHAP_N_SAMPLES = 512
+
 # ========================================
 # 11. ANALYSIS OUTPUT PATHS
 # ========================================
@@ -275,6 +281,8 @@ FAIRNESS_RESULTS_CSV    = os.path.join(RESULTS_DIR, "fairness_analysis.csv")
 CALIBRATION_RESULTS_CSV = os.path.join(RESULTS_DIR, "calibration_analysis.csv")
 GATE_WEIGHTS_NPY        = os.path.join(RESULTS_DIR, "gate_weights.npy")
 GATE_PATIENT_IDS_NPY    = os.path.join(RESULTS_DIR, "gate_patient_ids.npy")
+GATE_SHAP_IMPORTANCE_CSV = os.path.join(RESULTS_DIR, "gate_shap_importance.csv")
+GATE_SHAP_SUMMARY_PNG     = os.path.join(FIGURES_DIR, "gate_shap_summary.png")
 EARLY_WARNING_CSV       = os.path.join(RESULTS_DIR, "early_warning_results.csv")
 TEMPORAL_DRIFT_CSV      = os.path.join(RESULTS_DIR, "temporal_drift_results.csv")
 

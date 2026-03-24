@@ -32,6 +32,8 @@ try:
         GATE_HIDDEN_DIM, GATE_TEXT_DIM, GATE_DROPOUT,
         GATE_LR, GATE_EPOCHS, GATE_PATIENCE, GATE_SEEDS,
         GATE_WEIGHTS_NPY, GATE_PATIENT_IDS_NPY,
+        GATE_ENABLE_SHAP, GATE_SHAP_N_BACKGROUND, GATE_SHAP_N_SAMPLES,
+        GATE_SHAP_IMPORTANCE_CSV, GATE_SHAP_SUMMARY_PNG,
         TRAIN_TEST_FRAC, TRAIN_VAL_FRAC, RANDOM_STATE,
         THRESHOLD_HIGH_RISK, THRESHOLD_MEDIUM_RISK,
     )
@@ -41,6 +43,8 @@ except ImportError:
         GATE_HIDDEN_DIM, GATE_TEXT_DIM, GATE_DROPOUT,
         GATE_LR, GATE_EPOCHS, GATE_PATIENCE, GATE_SEEDS,
         GATE_WEIGHTS_NPY, GATE_PATIENT_IDS_NPY,
+        GATE_ENABLE_SHAP, GATE_SHAP_N_BACKGROUND, GATE_SHAP_N_SAMPLES,
+        GATE_SHAP_IMPORTANCE_CSV, GATE_SHAP_SUMMARY_PNG,
         TRAIN_TEST_FRAC, TRAIN_VAL_FRAC, RANDOM_STATE,
         THRESHOLD_HIGH_RISK, THRESHOLD_MEDIUM_RISK,
     )
@@ -120,7 +124,7 @@ def load_fused_data():
     """
     Loads and merges tabular features with text embeddings.
     Returns aligned arrays for text, tabular, labels, groups (subject_id),
-    hadm_ids, and the list of tabular feature names.
+    hadm_ids, and the lists of feature names (embedding and tabular).
     """
     pruned = FEATURES_CSV.replace(".csv", "_pruned.csv")
     feat_path = pruned if os.path.exists(pruned) else FEATURES_CSV
@@ -146,7 +150,122 @@ def load_fused_data():
     tabular  = df[tab_cols].values.astype(np.float32)
 
     logger.info("Text embedding dim: %d | Tabular features: %d", text_emb.shape[1], tabular.shape[1])
-    return text_emb, tabular, labels, groups, hadm_ids, tab_cols
+    return text_emb, tabular, labels, groups, hadm_ids, emb_cols, tab_cols
+
+
+class _GateProbWrapper(nn.Module):
+    """Wrap TextGuidedGate to return only probabilities for SHAP."""
+    def __init__(self, gate_model: nn.Module):
+        super().__init__()
+        self.gate_model = gate_model
+
+    def forward(self, text_emb: torch.Tensor, x_tab: torch.Tensor) -> torch.Tensor:
+        prob, _ = self.gate_model(text_emb, x_tab)
+        # DeepExplainer expects a 2D output for single-output models.
+        return prob.unsqueeze(1)
+
+
+def compute_gate_shap(
+    model: nn.Module,
+    text_emb: np.ndarray,
+    tabular: np.ndarray,
+    emb_cols: list,
+    tab_cols: list,
+    train_mask: np.ndarray,
+    test_mask: np.ndarray,
+    device: torch.device,
+    force: bool = False,
+) -> None:
+    """
+    Compute SHAP values for TRANCE-Gate using DeepExplainer and save:
+      - figures/gate_shap_summary.png
+      - results/gate_shap_importance.csv (mean |SHAP| per feature)
+
+    This is optional and can be expensive; controlled by GATE_ENABLE_SHAP.
+    """
+    try:
+        if not (GATE_ENABLE_SHAP or force):
+            return
+
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import shap
+
+        os.makedirs(os.path.dirname(GATE_SHAP_IMPORTANCE_CSV), exist_ok=True)
+        os.makedirs(os.path.dirname(GATE_SHAP_SUMMARY_PNG), exist_ok=True)
+
+        rng = np.random.RandomState(RANDOM_STATE)
+
+        tr_idx = np.where(train_mask)[0]
+        te_idx = np.where(test_mask)[0]
+        if len(tr_idx) == 0 or len(te_idx) == 0:
+            logger.warning("SHAP skipped: empty train/test split.")
+            return
+
+        n_bg = int(min(GATE_SHAP_N_BACKGROUND, len(tr_idx)))
+        n_ex = int(min(GATE_SHAP_N_SAMPLES, len(te_idx)))
+        bg_sel = rng.choice(tr_idx, n_bg, replace=False)
+        ex_sel = rng.choice(te_idx, n_ex, replace=False)
+
+        # SHAP can be fragile on GPU for some setups; run the explainer on CPU.
+        shap_device = torch.device("cpu")
+        model = model.to(shap_device).eval()
+
+        text_bg = torch.tensor(text_emb[bg_sel], dtype=torch.float32, device=shap_device)
+        tab_bg  = torch.tensor(tabular[bg_sel],  dtype=torch.float32, device=shap_device)
+        text_ex = torch.tensor(text_emb[ex_sel], dtype=torch.float32, device=shap_device)
+        tab_ex  = torch.tensor(tabular[ex_sel],  dtype=torch.float32, device=shap_device)
+
+        wrapped = _GateProbWrapper(model).to(shap_device).eval()
+        logger.info("Computing Gate SHAP (background=%d, samples=%d) ...", n_bg, n_ex)
+
+        explainer = shap.DeepExplainer(wrapped, [text_bg, tab_bg])
+        shap_vals = explainer.shap_values([text_ex, tab_ex])
+
+        # DeepExplainer may return:
+        # - list[input] for single-output models, or
+        # - list[output][input] for multi-output models.
+        if isinstance(shap_vals, list) and len(shap_vals) > 0 and isinstance(shap_vals[0], list):
+            shap_vals = shap_vals[0]
+
+        if not isinstance(shap_vals, list) or len(shap_vals) != 2:
+            logger.warning("Unexpected SHAP output format for gate model; skipping plot.")
+            return
+
+        sv_text = np.asarray(shap_vals[0])
+        sv_tab  = np.asarray(shap_vals[1])
+        if sv_text.ndim == 3:
+            sv_text = sv_text.squeeze(-1)
+        if sv_tab.ndim == 3:
+            sv_tab = sv_tab.squeeze(-1)
+
+        X_text = text_emb[ex_sel]
+        X_tab  = tabular[ex_sel]
+
+        sv = np.concatenate([sv_text, sv_tab], axis=1)
+        X  = np.concatenate([X_text, X_tab], axis=1)
+        feature_names = list(emb_cols) + list(tab_cols)
+
+        imp = np.abs(sv).mean(axis=0)
+        imp_df = (
+            pd.DataFrame({"feature": feature_names, "mean_abs_shap": imp})
+            .sort_values("mean_abs_shap", ascending=False)
+        )
+        imp_df.to_csv(GATE_SHAP_IMPORTANCE_CSV, index=False)
+
+        plt.figure(figsize=(10, 8))
+        shap.summary_plot(sv, X, feature_names=feature_names, max_display=30, show=False)
+        plt.tight_layout()
+        plt.savefig(GATE_SHAP_SUMMARY_PNG, dpi=150)
+        plt.close()
+        logger.info("Gate SHAP saved -> %s", GATE_SHAP_SUMMARY_PNG)
+    except Exception as e:
+        logger.warning("Gate SHAP failed: %s", e)
+
+
+def _state_dict_from_numpy(state: dict) -> dict:
+    return {k: torch.tensor(v) for k, v in state.items()}
 
 def make_splits(groups, labels):
     """
@@ -170,6 +289,46 @@ def make_splits(groups, labels):
     test_mask  = np.array([g in test_pats  for g in groups])
 
     return train_mask, val_mask, test_mask
+
+
+def run_gate_shap_only() -> None:
+    """
+    Compute TRANCE-Gate SHAP from a previously saved gate bundle (no training).
+
+    Requires `models/trance_gate.pkl` to contain `best_seed_state_dict` (added in
+    the updated pipeline). If missing, rerun training once to generate and save
+    the weights.
+    """
+    if not os.path.exists(GATE_MODEL_PKL):
+        logger.error("Gate model bundle not found: %s", GATE_MODEL_PKL)
+        return
+
+    bundle = joblib.load(GATE_MODEL_PKL)
+    best_state = bundle.get("best_seed_state_dict")
+    if best_state is None:
+        logger.error(
+            "Gate bundle missing best_seed_state_dict. Re-run training once (with the updated code) to save weights."
+        )
+        return
+
+    text_emb, tabular, labels, groups, hadm_ids, emb_cols, tab_cols = load_fused_data()
+    train_mask, _, test_mask = make_splits(groups, labels)
+
+    model = TextGuidedGate(text_emb.shape[1], tabular.shape[1]).to(torch.device("cpu"))
+    model.load_state_dict(_state_dict_from_numpy(best_state))
+    model.eval()
+
+    compute_gate_shap(
+        model,
+        text_emb=text_emb,
+        tabular=tabular,
+        emb_cols=emb_cols,
+        tab_cols=tab_cols,
+        train_mask=train_mask,
+        test_mask=test_mask,
+        device=torch.device("cpu"),
+        force=True,
+    )
 
 # ── Training ──────────────────────────────────────────────────────────────────
 
@@ -300,11 +459,16 @@ def train_gate_model():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info("Device: %s", device)
 
-    text_emb, tabular, labels, groups, hadm_ids, tab_cols = load_fused_data()
+    text_emb, tabular, labels, groups, hadm_ids, emb_cols, tab_cols = load_fused_data()
+    train_mask, _, test_mask = make_splits(groups, labels)
 
     all_val_probs  = []
     all_test_probs = []
     all_gate_weights = []
+    best_seed = None
+    best_seed_state_dict = None
+    best_seed_model = None
+    best_seed_val_auc = -1.0
     test_labels_ref  = None
     val_labels_ref   = None
     test_mask_ref    = None
@@ -318,12 +482,41 @@ def train_gate_model():
         all_test_probs.append(test_probs)
         all_gate_weights.append(gate_weights)
 
+        try:
+            v_auc = float(roc_auc_score(val_labels, val_probs))
+        except Exception:
+            v_auc = float("nan")
+        if np.isfinite(v_auc) and v_auc > best_seed_val_auc:
+            best_seed_val_auc = v_auc
+            if best_seed_model is not None:
+                del best_seed_model
+            best_seed_model = model
+            best_seed = int(seed)
+            best_seed_state_dict = {k: v.detach().cpu().numpy() for k, v in model.state_dict().items()}
+
         if test_labels_ref is None:
             test_labels_ref = test_labels
             val_labels_ref  = val_labels
             test_mask_ref   = test_mask
 
-        del model
+        if best_seed_model is not model:
+            del model
+        gc.collect()
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+
+    if best_seed_model is not None:
+        compute_gate_shap(
+            best_seed_model,
+            text_emb=text_emb,
+            tabular=tabular,
+            emb_cols=emb_cols,
+            tab_cols=tab_cols,
+            train_mask=train_mask,
+            test_mask=test_mask_ref,
+            device=device,
+        )
+        del best_seed_model
         gc.collect()
         if device.type == "cuda":
             torch.cuda.empty_cache()
@@ -370,6 +563,7 @@ def train_gate_model():
         "brier":        round(float(brier),     4),
         "ece_before":   round(float(ece_before), 4),
         "ece_after":    round(float(ece_after),  4),
+        "text_features": emb_cols,
         "tab_features": tab_cols,
         "n_test":       int(len(test_labels_ref)),
         "seeds":        GATE_SEEDS,
@@ -378,6 +572,7 @@ def train_gate_model():
     joblib.dump({
         "calibrator":      calibrator,
         "tab_cols":        tab_cols,
+        "emb_cols":        emb_cols,
         "text_dim":        text_emb.shape[1],
         "tabular_dim":     tabular.shape[1],
         "results":         results,
@@ -386,6 +581,8 @@ def train_gate_model():
         "test_labels":     test_labels_ref,
         "test_hadm_ids":   test_hadm_ids,
         "avg_gate_weights": avg_gate_weights,
+        "best_seed":        best_seed,
+        "best_seed_state_dict": best_seed_state_dict,
     }, GATE_MODEL_PKL)
 
     results_path = os.path.join(RESULTS_DIR, "gate_training_report.json")
@@ -396,4 +593,12 @@ def train_gate_model():
     return results
 
 if __name__ == "__main__":
-    train_gate_model()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--shap-only", action="store_true", help="Compute Gate SHAP from saved bundle (no training).")
+    args = parser.parse_args()
+
+    if args.shap_only:
+        run_gate_shap_only()
+    else:
+        train_gate_model()

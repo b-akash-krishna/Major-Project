@@ -207,7 +207,7 @@ FEATURE_SUBSET_CANDIDATES  = TRAIN_FEATURE_SUBSETS
 # 1. DATA LOADING
 # ==============================================================================
 
-def load_data() -> Tuple[pd.DataFrame, pd.Series, pd.Series]:
+def load_data() -> Tuple[pd.DataFrame, pd.Series, pd.Series, pd.Series]:
     """
     Loads structured features + optional ClinicalT5 embeddings.
 
@@ -305,7 +305,8 @@ def load_data() -> Tuple[pd.DataFrame, pd.Series, pd.Series]:
             )
 
     logger.info("Feature matrix: %s | Positive rate: %.2f%%", X.shape, y.mean() * 100)
-    return X, y, groups
+    hadm_ids = df.loc[X.index, "hadm_id"]
+    return X, y, groups, hadm_ids
 
 
 def auto_select_feature_subset(
@@ -1090,6 +1091,13 @@ def compute_shap(model, X_sample: pd.DataFrame) -> None:
         sv  = exp.shap_values(X_sample)
         if isinstance(sv, list):
             sv = sv[1]
+        # Save per-feature mean |SHAP| for reporting / downstream combination.
+        imp = np.abs(sv).mean(axis=0)
+        imp_df = (
+            pd.DataFrame({"feature": list(X_sample.columns), "mean_abs_shap": imp})
+            .sort_values("mean_abs_shap", ascending=False)
+        )
+        imp_df.to_csv(os.path.join(RESULTS_DIR, "base_shap_importance.csv"), index=False)
         plt.figure(figsize=(10, 8))
         shap.summary_plot(sv, X_sample, max_display=30, show=False)
         save_publication_figure(plt.gcf(), os.path.join(FIGURES_DIR, "shap_summary.png"))
@@ -1156,7 +1164,7 @@ class TRANCETrainer:
                     do_hpo: bool = True, do_artifacts: bool = True) -> Dict[str, object]:
         _set_seed(seed)
         # -- 1. Load -------------------------------------------------------
-        X, y, groups = load_data()
+        X, y, groups, hadm_ids = load_data()
         self.features = list(X.columns)
         feature_subset_info: Dict[str, object] = {"enabled": False}
 
@@ -1179,9 +1187,8 @@ class TRANCETrainer:
                 .groupby("subject_id", as_index=False)["time_key"].min()
             sorted_pats = pat_first.sort_values(["time_key", "subject_id"])["subject_id"].tolist()
         else:
-            # FIX: use seed directly so each multi-seed run gets a reproducibly
-            # different shuffle, independent of the module-level RANDOM_STATE.
-            rng = np.random.RandomState(seed)
+            # Use RANDOM_STATE for fixed split across seeds in ensemble
+            rng = np.random.RandomState(RANDOM_STATE)
             sorted_pats = list(groups.drop_duplicates().values)
             rng.shuffle(sorted_pats)
             logger.info("Patient-level random split enabled (USE_TEMPORAL_SPLIT=False).")
@@ -1203,6 +1210,7 @@ class TRANCETrainer:
         y_val = y[val_mask].values
         X_te  = X[test_mask].values.astype(np.float32)
         y_te  = y[test_mask].values
+        hadm_te = hadm_ids[test_mask].values
 
         logger.info("Train: %d | Val: %d | Test: %d", len(y_tr), len(y_val), len(y_te))
         logger.info("Train readmit: %.2f%% | Val: %.2f%% | Test: %.2f%%",
@@ -1389,8 +1397,10 @@ class TRANCETrainer:
             "seed":           seed,
             "val_probs_raw":  val_probs_for_cal,
             "test_probs_raw": test_probs_raw,
+            "test_probs_cal": test_probs_cal,
             "y_val":          y_val,
             "y_te":           y_te,
+            "test_hadm_ids":  hadm_te,
             "cv_auroc_mean":  cv_mean,
             "cv_auroc_std":   cv_std,
             "stack_info":     stack_info,
@@ -1416,6 +1426,9 @@ class TRANCETrainer:
 
         if len(seed_results) == 1:
             final = seed_results[0]
+            self._test_probs_cal = final["test_probs_cal"]
+            self._test_labels = final["y_te"]
+            self._test_hadm_ids = final["test_hadm_ids"]
             self._save(final)
             return final
 
@@ -1433,6 +1446,10 @@ class TRANCETrainer:
         self.best_threshold = find_best_threshold(
             val_probs_cal, y_val, strategy=THRESHOLD_STRATEGY
         )
+
+        self._test_probs_cal = test_probs_cal
+        self._test_labels = y_te
+        self._test_hadm_ids = seed_results[0]["test_hadm_ids"]
 
         auc_raw  = roc_auc_score(y_te, test_probs_raw)
         auc_cal  = roc_auc_score(y_te, test_probs_cal)
@@ -1509,6 +1526,9 @@ class TRANCETrainer:
                 "best_threshold": self.best_threshold,
                 "feature_means":  feature_means,
                 "timestamp":      datetime.now().isoformat(),
+                "test_probs_cal": getattr(self, "_test_probs_cal", None),
+                "test_labels":    getattr(self, "_test_labels",    None),
+                "test_hadm_ids":  getattr(self, "_test_hadm_ids",  None),
             },
             MAIN_MODEL_PKL,
         )
