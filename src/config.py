@@ -257,8 +257,9 @@ SHAP_N_SAMPLES = 500
 # 10. GATED FUSION SETTINGS
 # ========================================
 
-# Path for the new gated model
-ACAGN_GATE_MODEL_PKL = os.path.join(MODELS_DIR, "acagn_gate.pkl")
+# Path for the gated model bundle used for inference.
+# Keep separate from legacy artifacts to avoid overwriting older gate bundles.
+ACAGN_GATE_MODEL_PKL = os.path.join(MODELS_DIR, "acagn_gate_infer.pkl")
 GATE_MODEL_PKL = ACAGN_GATE_MODEL_PKL
 GATE_MODEL_PKL_LEGACY = os.path.join(MODELS_DIR, "trance_gate.pkl")
 

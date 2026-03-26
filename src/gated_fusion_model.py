@@ -21,6 +21,7 @@ import pandas as pd
 import joblib
 import torch
 import torch.nn as nn
+from typing import Optional
 from torch.utils.data import Dataset, DataLoader
 from sklearn.metrics import roc_auc_score, average_precision_score, brier_score_loss, log_loss
 from sklearn.calibration import IsotonicRegression
@@ -51,6 +52,14 @@ except ImportError:
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
+# ── Output safety ─────────────────────────────────────────────────────────────
+
+def _ensure_writable(path: str, overwrite: bool) -> None:
+    if path is None:
+        return
+    if os.path.exists(path) and not overwrite:
+        raise SystemExit(f"Refusing to overwrite existing file: {path} (pass --overwrite to replace)")
 
 # ── Dataset ───────────────────────────────────────────────────────────────────
 
@@ -458,12 +467,28 @@ def compute_ece(probs, labels, n_bins=10):
 
 # ── Main Training Entry Point ─────────────────────────────────────────────────
 
-def train_gate_model():
+def train_gate_model(
+    model_out: str = GATE_MODEL_PKL,
+    report_out: Optional[str] = None,
+    weights_out: str = GATE_WEIGHTS_NPY,
+    ids_out: str = GATE_PATIENT_IDS_NPY,
+    overwrite: bool = False,
+    save_gate_arrays: bool = True,
+):
     """
     Trains ACAGN-Gate across multiple seeds, averages predictions,
     applies isotonic calibration, and saves everything needed for analysis.
     """
     os.makedirs(RESULTS_DIR, exist_ok=True)
+    if report_out is None:
+        report_out = os.path.join(RESULTS_DIR, "gate_training_report.json")
+
+    _ensure_writable(model_out, overwrite=overwrite)
+    _ensure_writable(report_out, overwrite=overwrite)
+    if save_gate_arrays:
+        _ensure_writable(weights_out, overwrite=overwrite)
+        _ensure_writable(ids_out, overwrite=overwrite)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info("Device: %s", device)
 
@@ -473,6 +498,7 @@ def train_gate_model():
     all_val_probs  = []
     all_test_probs = []
     all_gate_weights = []
+    seed_state_dicts = {}
     best_seed = None
     best_seed_state_dict = None
     best_seed_model = None
@@ -489,6 +515,7 @@ def train_gate_model():
         all_val_probs.append(val_probs)
         all_test_probs.append(test_probs)
         all_gate_weights.append(gate_weights)
+        seed_state_dicts[int(seed)] = {k: v.detach().cpu().numpy() for k, v in model.state_dict().items()}
 
         try:
             v_auc = float(roc_auc_score(val_labels, val_probs))
@@ -559,9 +586,10 @@ def train_gate_model():
 
     # Save gate weights and patient ids for interpretability analysis
     test_hadm_ids = hadm_ids[test_mask_ref]
-    np.save(GATE_WEIGHTS_NPY,    avg_gate_weights)
-    np.save(GATE_PATIENT_IDS_NPY, test_hadm_ids)
-    logger.info("Gate weights saved -> %s", GATE_WEIGHTS_NPY)
+    if save_gate_arrays:
+        np.save(weights_out, avg_gate_weights)
+        np.save(ids_out, test_hadm_ids)
+        logger.info("Gate weights saved -> %s", weights_out)
 
     # Save model bundle
     results = {
@@ -591,22 +619,41 @@ def train_gate_model():
         "avg_gate_weights": avg_gate_weights,
         "best_seed":        best_seed,
         "best_seed_state_dict": best_seed_state_dict,
-    }, GATE_MODEL_PKL)
+        "seed_state_dicts": seed_state_dicts,
+        "gate_hidden_dim": int(GATE_HIDDEN_DIM),
+        "gate_dropout": float(GATE_DROPOUT),
+    }, model_out)
 
-    results_path = os.path.join(RESULTS_DIR, "gate_training_report.json")
-    with open(results_path, "w") as f:
+    with open(report_out, "w") as f:
         json.dump(results, f, indent=2)
 
-    logger.info("Gate model saved -> %s", GATE_MODEL_PKL)
+    logger.info("Gate model saved -> %s", model_out)
     return results
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--shap-only", action="store_true", help="Compute Gate SHAP from saved bundle (no training).")
+    parser.add_argument("--model-out", default=GATE_MODEL_PKL, help="Path to write the gate model bundle (.pkl).")
+    parser.add_argument(
+        "--report-out",
+        default=None,
+        help="Path to write the gate JSON metric report (default: results/gate_training_report.json).",
+    )
+    parser.add_argument("--overwrite", action="store_true", help="Allow overwriting existing output files.")
+    parser.add_argument(
+        "--no-save-gate-arrays",
+        action="store_true",
+        help="Do not write gate_weights.npy / gate_patient_ids.npy (useful for inference-only bundles).",
+    )
     args = parser.parse_args()
 
     if args.shap_only:
         run_gate_shap_only()
     else:
-        train_gate_model()
+        train_gate_model(
+            model_out=args.model_out,
+            report_out=args.report_out,
+            overwrite=args.overwrite,
+            save_gate_arrays=not args.no_save_gate_arrays,
+        )
