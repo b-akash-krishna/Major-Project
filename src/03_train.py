@@ -223,7 +223,15 @@ def load_data() -> Tuple[pd.DataFrame, pd.Series, pd.Series, pd.Series]:
     pruned = FEATURES_CSV.replace(".csv", "_pruned.csv")
     path   = pruned if os.path.exists(pruned) else FEATURES_CSV
     logger.info("Loading features: %s", path)
-    tab = pd.read_csv(path, low_memory=False).fillna(0)
+
+    # Memory optimization: specify dtypes for IDs to save space
+    id_dtypes = {"subject_id": "int32", "hadm_id": "int32", "readmit_30": "int8"}
+    tab = pd.read_csv(path, low_memory=False, dtype=id_dtypes).fillna(0)
+
+    # Downcast other float columns to float32
+    float_cols = tab.select_dtypes(include=["float64"]).columns
+    tab[float_cols] = tab[float_cols].astype("float32")
+    gc.collect()
 
     selected: Optional[List[str]] = None
     if USE_SELECTED_FEATURES_JSON and os.path.exists(SELECTED_FEATURES_JSON):
@@ -232,11 +240,42 @@ def load_data() -> Tuple[pd.DataFrame, pd.Series, pd.Series, pd.Series]:
         logger.info("Selected features: %d", len(selected))
 
     if os.path.exists(EMBEDDINGS_CSV):
-        emb = pd.read_csv(EMBEDDINGS_CSV, low_memory=False)
-        df  = tab.merge(emb, on="hadm_id", how="left").fillna(0)
+        # Memory optimization: process in batches (chunks) to respect 8GB RAM limit
+        logger.info("Loading large embeddings in batches: %s", EMBEDDINGS_CSV)
+        
+        # Peek at columns first to build dtype dict for all ct5_* cols
+        emb_header = pd.read_csv(EMBEDDINGS_CSV, nrows=0)
+        emb_dtypes = {c: "float32" for c in emb_header.columns if c.startswith("ct5_")}
+        emb_dtypes["hadm_id"] = "int32"
+
+        # Read in chunks, filtering immediately to only keep required admissions
+        chunks = []
+        target_ids = set(tab["hadm_id"])
+        
+        # Using 25,000 as a safe chunk size for 8GB RAM
+        for chunk in pd.read_csv(EMBEDDINGS_CSV, chunksize=25000, low_memory=False, dtype=emb_dtypes):
+            # Keep only the rows that match our already loaded features
+            chunk = chunk[chunk['hadm_id'].isin(target_ids)]
+            if not chunk.empty:
+                chunks.append(chunk)
+            del chunk
+            gc.collect()
+        
+        logger.info("Merging filtered embedding chunks...")
+        emb = pd.concat(chunks, axis=0)
+        del chunks, target_ids
+        gc.collect()
+        
+        df = tab.merge(emb, on="hadm_id", how="left").fillna(0)
+
+        # Clear memory of intermediate dataframes
+        del tab, emb
+        gc.collect()
         logger.info("Fused shape: %s", df.shape)
     else:
         df = tab.copy()
+        del tab
+        gc.collect()
         logger.warning("Embeddings not found — running tabular-only mode.")
 
     groups  = df["subject_id"].astype(int)
