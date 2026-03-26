@@ -1,0 +1,347 @@
+{
+    "global_baseline_threshold": 0.295,
+    "subgroup_thresholds": {
+        "Age_65-74": {
+            "opt_mcc_thresh": 0.24499999999999997,
+            "opt_rec_thresh": 0.05499999999999999,
+            "val_n": 14130
+        },
+        "Age_75+": {
+            "opt_mcc_thresh": 0.20999999999999996,
+            "opt_rec_thresh": 0.08999999999999998,
+            "val_n": 16121
+        },
+        "Age_<40": {
+            "opt_mcc_thresh": 0.30999999999999994,
+            "opt_rec_thresh": 0.03,
+            "val_n": 17950
+        },
+        "Age_40-54": {
+            "opt_mcc_thresh": 0.27499999999999997,
+            "opt_rec_thresh": 0.01,
+            "val_n": 17102
+        },
+        "Age_55-64": {
+            "opt_mcc_thresh": 0.26999999999999996,
+            "opt_rec_thresh": 0.01,
+            "val_n": 15948
+        },
+        "Gender_Male": {
+            "opt_mcc_thresh": 0.285,
+            "opt_rec_thresh": 0.01,
+            "val_n": 38809
+        },
+        "Gender_Female": {
+            "opt_mcc_thresh": 0.31499999999999995,
+            "opt_rec_thresh": 0.05499999999999999,
+            "val_n": 42442
+        }
+    },
+    "test_results": [
+        {
+            "Feature": "Age",
+            "Subgroup": "65-74",
+            "Test_N": 14788,
+            "Global_Thresh": 0.295,
+            "Opt_MCC_Thresh": 0.24499999999999997,
+            "Opt_Rec_Thresh": 0.05499999999999999,
+            "Global_Metrics": {
+                "recall": 0.36783667621776506,
+                "precision": 0.4335162515829464,
+                "specificity": 0.8881293764588196,
+                "f1": 0.3979848866498741,
+                "mcc": 0.2731067679926039,
+                "tp": 1027,
+                "fn": 1765,
+                "fp": 1342,
+                "tn": 10654
+            },
+            "Opt_MCC_Metrics": {
+                "recall": 0.5053724928366762,
+                "precision": 0.3784871244635193,
+                "specificity": 0.8068522840946982,
+                "f1": 0.43282208588957055,
+                "mcc": 0.28140239164423086,
+                "tp": 1411,
+                "fn": 1381,
+                "fp": 2317,
+                "tn": 9679
+            },
+            "Opt_Rec_Metrics": {
+                "recall": 0.9803008595988538,
+                "precision": 0.21235161765846847,
+                "specificity": 0.15371790596865623,
+                "f1": 0.3490848797908297,
+                "mcc": 0.15677234504295984,
+                "tp": 2737,
+                "fn": 55,
+                "fp": 10152,
+                "tn": 1844
+            },
+            "Improvement_MCC_vs_Global": 0.008295623651626949,
+            "Improvement_Recall_vs_Global": 0.13753581661891112
+        },
+        {
+            "Feature": "Age",
+            "Subgroup": "75+",
+            "Test_N": 16351,
+            "Global_Thresh": 0.295,
+            "Opt_MCC_Thresh": 0.20999999999999996,
+            "Opt_Rec_Thresh": 0.08999999999999998,
+            "Global_Metrics": {
+                "recall": 0.2155205532078371,
+                "precision": 0.3678688524590164,
+                "specificity": 0.9298807099214431,
+                "f1": 0.27180232558139533,
+                "mcc": 0.18292712357331767,
+                "tp": 561,
+                "fn": 2042,
+                "fp": 964,
+                "tn": 12784
+            },
+            "Opt_MCC_Metrics": {
+                "recall": 0.46254321936227427,
+                "precision": 0.2989818723615595,
+                "specificity": 0.7946610416060518,
+                "f1": 0.3631975867269985,
+                "mcc": 0.21840790104781838,
+                "tp": 1204,
+                "fn": 1399,
+                "fp": 2823,
+                "tn": 10925
+            },
+            "Opt_Rec_Metrics": {
+                "recall": 0.9089512101421436,
+                "precision": 0.19544027754832313,
+                "specificity": 0.2915333139365726,
+                "f1": 0.3217077979468353,
+                "mcc": 0.16730099259695455,
+                "tp": 2366,
+                "fn": 237,
+                "fp": 9740,
+                "tn": 4008
+            },
+            "Improvement_MCC_vs_Global": 0.03548077747450071,
+            "Improvement_Recall_vs_Global": 0.24702266615443716
+        },
+        {
+            "Feature": "Age",
+            "Subgroup": "<40",
+            "Test_N": 17492,
+            "Global_Thresh": 0.295,
+            "Opt_MCC_Thresh": 0.30999999999999994,
+            "Opt_Rec_Thresh": 0.03,
+            "Global_Metrics": {
+                "recall": 0.5664776307498425,
+                "precision": 0.571337782014617,
+                "specificity": 0.9057829305768962,
+                "f1": 0.5688973263724094,
+                "mcc": 0.4738355832589754,
+                "tp": 1798,
+                "fn": 1376,
+                "fp": 1349,
+                "tn": 12969
+            },
+            "Opt_MCC_Metrics": {
+                "recall": 0.5516698172652804,
+                "precision": 0.576366030283081,
+                "specificity": 0.9101131442938958,
+                "f1": 0.5637475853187379,
+                "mcc": 0.4697801205153794,
+                "tp": 1751,
+                "fn": 1423,
+                "fp": 1287,
+                "tn": 13031
+            },
+            "Opt_Rec_Metrics": {
+                "recall": 0.9817265280403277,
+                "precision": 0.21295790049207217,
+                "specificity": 0.19569772314569073,
+                "f1": 0.3499943839155341,
+                "mcc": 0.18489397460182752,
+                "tp": 3116,
+                "fn": 58,
+                "fp": 11516,
+                "tn": 2802
+            },
+            "Improvement_MCC_vs_Global": -0.004055462743596028,
+            "Improvement_Recall_vs_Global": -0.01480781348456206
+        },
+        {
+            "Feature": "Age",
+            "Subgroup": "40-54",
+            "Test_N": 17674,
+            "Global_Thresh": 0.295,
+            "Opt_MCC_Thresh": 0.27499999999999997,
+            "Opt_Rec_Thresh": 0.01,
+            "Global_Metrics": {
+                "recall": 0.4872737556561086,
+                "precision": 0.46769815418023886,
+                "specificity": 0.8612957985570802,
+                "f1": 0.4772853185595568,
+                "mcc": 0.3432977047805795,
+                "tp": 1723,
+                "fn": 1813,
+                "fp": 1961,
+                "tn": 12177
+            },
+            "Opt_MCC_Metrics": {
+                "recall": 0.5690045248868778,
+                "precision": 0.43259514082992906,
+                "specificity": 0.8133399349271467,
+                "f1": 0.49151093196531087,
+                "mcc": 0.34735713848614586,
+                "tp": 2012,
+                "fn": 1524,
+                "fp": 2639,
+                "tn": 11499
+            },
+            "Opt_Rec_Metrics": {
+                "recall": 1.0,
+                "precision": 0.2028802570428596,
+                "specificity": 0.01732918376007922,
+                "f1": 0.33732411161459575,
+                "mcc": 0.059293753934017535,
+                "tp": 3536,
+                "fn": 0,
+                "fp": 13893,
+                "tn": 245
+            },
+            "Improvement_MCC_vs_Global": 0.004059433705566329,
+            "Improvement_Recall_vs_Global": 0.08173076923076922
+        },
+        {
+            "Feature": "Age",
+            "Subgroup": "55-64",
+            "Test_N": 15936,
+            "Global_Thresh": 0.295,
+            "Opt_MCC_Thresh": 0.26999999999999996,
+            "Opt_Rec_Thresh": 0.01,
+            "Global_Metrics": {
+                "recall": 0.42539267015706805,
+                "precision": 0.4701627486437613,
+                "specificity": 0.8862577639751553,
+                "f1": 0.44665864971654357,
+                "mcc": 0.3240002907798612,
+                "tp": 1300,
+                "fn": 1756,
+                "fp": 1465,
+                "tn": 11415
+            },
+            "Opt_MCC_Metrics": {
+                "recall": 0.5333769633507853,
+                "precision": 0.4167732037841984,
+                "specificity": 0.8229037267080745,
+                "f1": 0.467920195205971,
+                "mcc": 0.32594208607672087,
+                "tp": 1630,
+                "fn": 1426,
+                "fp": 2281,
+                "tn": 10599
+            },
+            "Opt_Rec_Metrics": {
+                "recall": 0.99967277486911,
+                "precision": 0.19595894804361771,
+                "specificity": 0.026785714285714284,
+                "f1": 0.3276842218170117,
+                "mcc": 0.07147242880837389,
+                "tp": 3055,
+                "fn": 1,
+                "fp": 12535,
+                "tn": 345
+            },
+            "Improvement_MCC_vs_Global": 0.001941795296859672,
+            "Improvement_Recall_vs_Global": 0.10798429319371727
+        },
+        {
+            "Feature": "Gender",
+            "Subgroup": "Male",
+            "Test_N": 39039,
+            "Global_Thresh": 0.295,
+            "Opt_MCC_Thresh": 0.285,
+            "Opt_Rec_Thresh": 0.01,
+            "Global_Metrics": {
+                "recall": 0.44027349510658265,
+                "precision": 0.4643665158371041,
+                "specificity": 0.880050664977834,
+                "f1": 0.4519991741793407,
+                "mcc": 0.3269745840320294,
+                "tp": 3284,
+                "fn": 4175,
+                "fp": 3788,
+                "tn": 27792
+            },
+            "Opt_MCC_Metrics": {
+                "recall": 0.5111945300978683,
+                "precision": 0.43040975279376903,
+                "specificity": 0.8402153261557949,
+                "f1": 0.46733668341708545,
+                "mcc": 0.3298438083569645,
+                "tp": 3813,
+                "fn": 3646,
+                "fp": 5046,
+                "tn": 26534
+            },
+            "Opt_Rec_Metrics": {
+                "recall": 0.999865933771283,
+                "precision": 0.19657871846912148,
+                "specificity": 0.034800506649778344,
+                "f1": 0.32856072954755716,
+                "mcc": 0.08235999930804434,
+                "tp": 7458,
+                "fn": 1,
+                "fp": 30481,
+                "tn": 1099
+            },
+            "Improvement_MCC_vs_Global": 0.0028692243249350824,
+            "Improvement_Recall_vs_Global": 0.07092103499128566
+        },
+        {
+            "Feature": "Gender",
+            "Subgroup": "Female",
+            "Test_N": 43202,
+            "Global_Thresh": 0.295,
+            "Opt_MCC_Thresh": 0.31499999999999995,
+            "Opt_Rec_Thresh": 0.05499999999999999,
+            "Global_Metrics": {
+                "recall": 0.4057387691508699,
+                "precision": 0.4869118105328763,
+                "specificity": 0.9072394366197183,
+                "f1": 0.4426345609065156,
+                "mcc": 0.33682219120473955,
+                "tp": 3125,
+                "fn": 4577,
+                "fp": 3293,
+                "tn": 32207
+            },
+            "Opt_MCC_Metrics": {
+                "recall": 0.3906777460399896,
+                "precision": 0.49760211675210847,
+                "specificity": 0.9144225352112676,
+                "f1": 0.4377045603316605,
+                "mcc": 0.3365735043235025,
+                "tp": 3009,
+                "fn": 4693,
+                "fp": 3038,
+                "tn": 32462
+            },
+            "Opt_Rec_Metrics": {
+                "recall": 0.9593612048818488,
+                "precision": 0.21573722627737227,
+                "specificity": 0.24335211267605633,
+                "f1": 0.3522597254004577,
+                "mcc": 0.19142907035267803,
+                "tp": 7389,
+                "fn": 313,
+                "fp": 26861,
+                "tn": 8639
+            },
+            "Improvement_MCC_vs_Global": -0.00024868688123702576,
+            "Improvement_Recall_vs_Global": -0.015061023110880312
+        }
+    ],
+    "summary": {
+        "avg_mcc_improvement": 0.006906100689807955,
+        "avg_recall_improvement": 0.08790367765623973
+    }
+}
