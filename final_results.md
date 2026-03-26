@@ -5,14 +5,16 @@ This is the **detailed** and **fully traceable** final-results report for our pr
 
 1) a **calibrated stacked tree ensemble** (Base Ensemble; implemented as the base framework in this repo),  
 2) a **text-guided neural gating model** (ACAGN-Gate), and  
-3) a **hybrid ensemble** of the two (ACAGN-Hybrid).
+3) a **Concat-MLP baseline** (no gating; direct concatenation), and  
+4) a **hybrid ensemble** of the two (ACAGN-Hybrid).
 
 Naming note:
 - The paper/system name is **ACAGN** (*An Adaptive Context-Aware Gating Network*).
 - Some saved artifacts and code identifiers still use the legacy `trance_*` prefix (for example `models/trance_framework.pkl`, `models/trance_gate.pkl`). Those correspond to the **ACAGN** Base Ensemble and ACAGN-Gate implementations.
 
-All metrics and tables below are taken from artifacts under `results/` from the final run timestamp:
-`2026-03-24T04:46:17` (Base framework), plus follow-on analyses generated the same day.
+All metrics and tables below are taken from artifacts under `results/`:
+- `2026-03-24T04:46:17` (Base framework + Gate + Hybrid final run), plus follow-on analyses generated the same day.
+- `2026-03-26T03:39:37` (Concat-MLP baseline run; same split + hyperparameters as ACAGN-Gate).
 
 ---
 
@@ -22,7 +24,8 @@ We built an imaging-free readmission-risk modeling pipeline for MIMIC-IV that fu
 with (ii) dense clinical-text embeddings (`ct5_*`). We trained and evaluated three model families:
 1) a calibrated stacked ensemble of gradient-boosted decision trees (LightGBM + XGBoost + CatBoost) with a
 logistic-regression meta-learner, 2) a neural “text-guided gating” model where the note embedding controls
-per-feature gates applied to tabular features, and 3) a probability-level hybrid (50/50 blend) of the two.
+per-feature gates applied to tabular features, 3) a no-gating Concat-MLP baseline (direct concatenation),
+and 4) a probability-level hybrid (50/50 blend) of the tree ensemble and gated model.
 
 On a held-out patient-level test set of **82,241 admissions** (readmission rate **18.43%**), our final calibrated
 metrics were:
@@ -31,6 +34,7 @@ metrics were:
 | :--- | :---: | :---: | :---: | :---: |
 | Base Ensemble | 0.7705 | 0.4708 | 0.0036 | 0.1245 |
 | ACAGN-Gate | 0.7683 | 0.4679 | 0.0058 | 0.1249 |
+| Concat-MLP (no gating) | 0.7545 | 0.4511 | 0.0033 | 0.1272 |
 | **ACAGN-Hybrid** | **0.7738** | **0.4838** | 0.0061 | **0.1239** |
 
 We also performed early-warning evaluation (Day 1–7), temporal drift checks (2008–2022),
@@ -99,6 +103,7 @@ This repo is organized as a script pipeline under `src/`:
 | 3 | `src/02_embed.py` | Generate note embeddings (`ct5_*`) | `data/embeddings.csv` |
 | 4 | `src/03_train.py` | Train + calibrate stacked tree ensemble | `models/trance_framework.pkl`, `results/training_report.json` |
 | 5 | `src/gated_fusion_model.py` | Train + calibrate ACAGN-Gate | `models/trance_gate.pkl`, `results/gate_training_report.json` |
+| 5b | `src/concat_mlp_baseline.py` | Train + calibrate Concat-MLP baseline (no gating) | `models/concat_mlp.pkl`, `results/concat_mlp_training_report.json` |
 | 6 | `src/10_gate_interpretability.py` | Gate interpretability testing | `results/gate_interpretability.csv`, `figures/gate_heatmap.png` |
 | 7 | `src/11_fairness_calibration.py` | Fairness + calibration across subgroups | `results/fairness_analysis.csv` |
 | 8 | `src/12_early_warning.py` | Early warning (Day-limited EHR) | `results/early_warning_results.csv`, `figures/early_warning_curve.png` |
@@ -247,6 +252,29 @@ Saved gate metrics in `results/gate_training_report.json`:
 Saved in:
 - `results/hybrid_report.json`
 - `results/hybrid_predictions.csv`
+
+---
+
+## 5.4 Concat-MLP Baseline (No Gating; Direct Concatenation)
+
+**Goal:** isolate whether ACAGN-Gate performance gains come from the *gating mechanism itself*, rather than simply
+combining text + structured features.
+
+**Architecture:** identical to ACAGN-Gate’s classifier head, but removes the gate network entirely:
+- Fusion: `concat(text_embedding, tabular_features)`
+- Classifier head: same MLP layout and dropout as ACAGN-Gate
+- Training: same patient-level split strategy, seeds, optimizer, epochs, scheduler, early stopping, and isotonic calibration
+
+**Artifacts:**
+- `src/concat_mlp_baseline.py`
+- `models/concat_mlp.pkl`
+- `results/concat_mlp_training_report.json`
+
+**Final test-set metrics (calibrated):**
+- AUROC (cal): `0.7545`
+- AUPRC: `0.4511`
+- ECE: `0.0033`
+- Brier: `0.1272`
 
 ---
 

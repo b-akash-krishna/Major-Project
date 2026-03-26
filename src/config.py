@@ -258,6 +258,9 @@ SHAP_N_SAMPLES = 500
 # Path for the new gated model
 GATE_MODEL_PKL = os.path.join(MODELS_DIR, "trance_gate.pkl")
 
+# Concat-MLP baseline (no gating; concatenate text + tabular directly)
+CONCAT_MLP_MODEL_PKL = os.path.join(MODELS_DIR, "concat_mlp.pkl")
+
 # Gate network architecture
 GATE_HIDDEN_DIM = 128        # hidden layer size inside gate network
 GATE_TEXT_DIM = 512          # must match EMBED_DIM from section 7
@@ -284,6 +287,8 @@ GATE_SHAP_IMPORTANCE_CSV = os.path.join(RESULTS_DIR, "gate_shap_importance.csv")
 GATE_SHAP_SUMMARY_PNG     = os.path.join(FIGURES_DIR, "gate_shap_summary.png")
 EARLY_WARNING_CSV       = os.path.join(RESULTS_DIR, "early_warning_results.csv")
 TEMPORAL_DRIFT_CSV      = os.path.join(RESULTS_DIR, "temporal_drift_results.csv")
+
+CONCAT_MLP_REPORT_JSON  = os.path.join(RESULTS_DIR, "concat_mlp_training_report.json")
 
 # ========================================
 # 12. EARLY WARNING SETTINGS
