@@ -3,9 +3,12 @@ import os
 import joblib
 
 sys.path.insert(0, os.path.join(os.getcwd(), 'src'))
-from config import MODELS_DIR
+from config import MAIN_MODEL_PKL, MAIN_MODEL_PKL_LEGACY
 
-pkl_path = os.path.join(MODELS_DIR, 'trance_framework.pkl')
+if os.path.exists(MAIN_MODEL_PKL):
+    pkl_path = MAIN_MODEL_PKL
+else:
+    pkl_path = MAIN_MODEL_PKL_LEGACY
 data = joblib.load(pkl_path)
 features = data.get('features', [])
 ct5 = [x for x in features if x.startswith('ct5_')]

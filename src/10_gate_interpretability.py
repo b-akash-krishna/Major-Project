@@ -24,12 +24,12 @@ import matplotlib.pyplot as plt
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))  
 try:  
     from config import (  
-        GATE_WEIGHTS_NPY, GATE_PATIENT_IDS_NPY, GATE_MODEL_PKL,  
+        GATE_WEIGHTS_NPY, GATE_PATIENT_IDS_NPY, GATE_MODEL_PKL, GATE_MODEL_PKL_LEGACY,  
         MIMIC_NOTE_DIR, MIMIC_BHC_DIR, RESULTS_DIR, FIGURES_DIR,  
     )  
 except ImportError:  
     from .config import (  
-        GATE_WEIGHTS_NPY, GATE_PATIENT_IDS_NPY, GATE_MODEL_PKL,  
+        GATE_WEIGHTS_NPY, GATE_PATIENT_IDS_NPY, GATE_MODEL_PKL, GATE_MODEL_PKL_LEGACY,  
         MIMIC_NOTE_DIR, MIMIC_BHC_DIR, RESULTS_DIR, FIGURES_DIR,  
     )  
 import joblib
@@ -134,7 +134,15 @@ def run_interpretability_analysis():
     # Load gate weights and patient ids  
     gate_weights  = np.load(GATE_WEIGHTS_NPY)    # (n_test, n_features)  
     test_hadm_ids = np.load(GATE_PATIENT_IDS_NPY) # (n_test,)  
-    bundle        = joblib.load(GATE_MODEL_PKL)  
+    model_path = GATE_MODEL_PKL
+    if not os.path.exists(model_path) and os.path.exists(GATE_MODEL_PKL_LEGACY):
+        logger.warning(
+            "Gate model not found at %s; falling back to legacy path %s",
+            model_path,
+            GATE_MODEL_PKL_LEGACY,
+        )
+        model_path = GATE_MODEL_PKL_LEGACY
+    bundle        = joblib.load(model_path)  
     tab_cols      = bundle["tab_cols"]            # list of feature names
 
     logger.info("Gate weights shape: %s", gate_weights.shape)  

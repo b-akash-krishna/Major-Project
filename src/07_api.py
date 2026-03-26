@@ -1,6 +1,6 @@
 # src/07_api.py
 """
-TRANCE Readmission Prediction API — FastAPI v2 compatible.
+ACAGN Readmission Prediction API — FastAPI v2 compatible.
 Run as:  uvicorn src.07_api:app --host 0.0.0.0 --port 8000
       OR python src/07_api.py
 """
@@ -25,6 +25,7 @@ try:
         EMBEDDING_DIM,
     )
     from embedding_utils import get_embedding, get_model_container
+    from hybrid_predictor import GatePredictor, hybrid_combine
 except ImportError:
     from .config import (
         MAIN_MODEL_PKL, API_HOST, API_PORT, CORS_ORIGINS,
@@ -32,13 +33,14 @@ except ImportError:
         EMBEDDING_DIM,
     )
     from .embedding_utils import get_embedding, get_model_container
+    from .hybrid_predictor import GatePredictor, hybrid_combine
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 app = FastAPI(
-    title="TRANCE Readmission Prediction API",
+    title="ACAGN Readmission Prediction API",
     description=(
         "30-day hospital readmission risk prediction using "
         "LightGBM + XGBoost ensemble with clinical note embeddings."
@@ -55,6 +57,7 @@ app.add_middleware(
 
 # Load model at startup (singleton)
 model_container = get_model_container()
+_gate_predictor = None
 
 
 # ── Request schema (Pydantic v2 compatible) ───────────────────────────────────
@@ -105,18 +108,32 @@ def _build_feature_row(input_data: PatientInput) -> dict:
     # Start from DEFAULTS so every feature the model expects is present
     full = {**DEFAULTS, **data}
 
-    # Generate 128-dim text embeddings
-    emb = get_embedding(text=data.get("clinical_note"), features=full)
+    note_text = data.get("clinical_note") or ""
+
+    # Generate text embeddings
+    emb = get_embedding(text=note_text, features=full)
     for i, val in enumerate(emb):
         full[f"ct5_{i}"] = float(val)
 
+    # Metadata features expected by ACAGN models trained with embeddings.csv
+    full["ct5_has_note"] = 1 if str(note_text).strip() else 0
+    full["ct5_note_len_chars"] = int(len(str(note_text)))
+    full["ct5_note_len_tokens"] = int(len(str(note_text).split()))
+
     return full
+
+
+def _get_gate_predictor() -> GatePredictor:
+    global _gate_predictor
+    if _gate_predictor is None:
+        _gate_predictor = GatePredictor()
+    return _gate_predictor
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @app.post("/predict", summary="Predict 30-day readmission risk")
-async def predict(input_data: PatientInput):
+async def predict(input_data: PatientInput, model: str = "base"):
     """
     Returns readmission probability and risk tier (High / Medium / Low).
 
@@ -135,8 +152,24 @@ async def predict(input_data: PatientInput):
         row = {f: full.get(f, 0) for f in features}
         X   = pd.DataFrame([row])[features]
 
-        # Full ensemble prediction with calibration
-        proba = float(model_container.predict_proba(X)[0])
+        model_key = (model or "base").strip().lower()
+
+        # Base ensemble probability (calibrated)
+        p_base = float(model_container.predict_proba(X)[0])
+
+        if model_key == "base":
+            proba = p_base
+            model_used = "ACAGN-Base"
+        elif model_key == "gate":
+            p_gate = float(_get_gate_predictor().predict_proba_from_full(full))
+            proba = p_gate
+            model_used = "ACAGN-Gate"
+        elif model_key == "hybrid":
+            p_gate = float(_get_gate_predictor().predict_proba_from_full(full))
+            proba = hybrid_combine(p_base=p_base, p_gate=p_gate, w_base=0.5)
+            model_used = "ACAGN-Hybrid"
+        else:
+            raise HTTPException(status_code=400, detail="Invalid model. Use: base | gate | hybrid")
 
         if proba >= THRESHOLD_HIGH_RISK:
             risk = "High"
@@ -150,9 +183,15 @@ async def predict(input_data: PatientInput):
             "probability": round(proba, 4),
             "risk_level":  risk,
             "confidence":  round(max(proba, 1 - proba), 4),
+            "model":       model_used,
             "status":      "success",
         }
 
+    except HTTPException:
+        raise
+    except (FileNotFoundError, RuntimeError) as e:
+        logger.exception("Prediction dependency error")
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.exception("Prediction error")
         raise HTTPException(status_code=500, detail=f"Internal error: {e}")

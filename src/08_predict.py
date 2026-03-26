@@ -1,6 +1,6 @@
 ﻿# src/08_predict.py
 """
-TRANCE Framework - Interactive Prediction CLI.
+ACAGN - Interactive Prediction CLI.
 Run as:  python src/08_predict.py   OR   python -m src.08_predict
 
 Embedding method matches training exactly:
@@ -461,7 +461,7 @@ def _print_payload_debug(features: list, row: dict) -> None:
 def get_user_input() -> dict:
     """Interactive CLI prompt for patient data."""
     print("\n" + "=" * 52)
-    print("  TRANCE RISK PREDICTION - INPUT TERMINAL")
+    print("  ACAGN RISK PREDICTION - INPUT TERMINAL")
     print("=" * 52)
 
     def _prompt(prompt: str, default, cast=int, min_val=None, max_val=None):
@@ -679,7 +679,7 @@ def run_inference(data: dict) -> None:
 
 if __name__ == "__main__":
     if not model_container.model_data:
-        print("ERROR: Model not loaded. Ensure models/trance_framework.pkl exists.")
+        print("ERROR: Model not loaded. Ensure models/acagn_framework.pkl exists (legacy: models/trance_framework.pkl).")
         sys.exit(1)
 
     print(

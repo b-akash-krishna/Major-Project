@@ -24,12 +24,12 @@ except ImportError:
 
 # ── Import fix: works both as package module and direct script ─────────────────
 try:
-    from .config import FIGURES_DIR, RESULTS_DIR, MAIN_MODEL_PKL, FEATURES_CSV
+    from .config import FIGURES_DIR, RESULTS_DIR, MAIN_MODEL_PKL, MAIN_MODEL_PKL_LEGACY, FEATURES_CSV
     from .embedding_utils import _extract_primary_model
     from .plot_style import apply_publication_style, save_publication_figure
 except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from config import FIGURES_DIR, RESULTS_DIR, MAIN_MODEL_PKL, FEATURES_CSV
+    from config import FIGURES_DIR, RESULTS_DIR, MAIN_MODEL_PKL, MAIN_MODEL_PKL_LEGACY, FEATURES_CSV
     from embedding_utils import _extract_primary_model
     from plot_style import apply_publication_style, save_publication_figure
 
@@ -48,10 +48,18 @@ class JournalVisualizer:
         self.primary_model = None   # actual LightGBM estimator
 
     def load_data(self):
-        if not os.path.exists(MAIN_MODEL_PKL):
-            logger.error("Model not found at %s. Run 03_train.py first.", MAIN_MODEL_PKL)
+        model_path = MAIN_MODEL_PKL
+        if not os.path.exists(model_path) and os.path.exists(MAIN_MODEL_PKL_LEGACY):
+            logger.warning(
+                "Model not found at %s; falling back to legacy path %s",
+                model_path,
+                MAIN_MODEL_PKL_LEGACY,
+            )
+            model_path = MAIN_MODEL_PKL_LEGACY
+        if not os.path.exists(model_path):
+            logger.error("Model not found at %s. Run 03_train.py first.", model_path)
             return False
-        self.model_data    = joblib.load(MAIN_MODEL_PKL)
+        self.model_data = joblib.load(model_path)
         # ── FIX: pkl stores list of (name, model) under 'models', not 'model'
         self.primary_model = _extract_primary_model(self.model_data)
         logger.info("Model loaded.")

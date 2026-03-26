@@ -50,14 +50,14 @@ try:
     from .config import (
         TEXT_MODEL_CANDIDATES, EMBEDDING_DIM, TEXT_MAX_LENGTH,
         BATCH_SIZE_GPU, BATCH_SIZE_CPU, EMBEDDING_INFO_PKL, RANDOM_STATE,
-        MAIN_MODEL_PKL,
+        MAIN_MODEL_PKL, MAIN_MODEL_PKL_LEGACY,
     )
 except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from config import (
         TEXT_MODEL_CANDIDATES, EMBEDDING_DIM, TEXT_MAX_LENGTH,
         BATCH_SIZE_GPU, BATCH_SIZE_CPU, EMBEDDING_INFO_PKL, RANDOM_STATE,
-        MAIN_MODEL_PKL,
+        MAIN_MODEL_PKL, MAIN_MODEL_PKL_LEGACY,
     )
 
 
@@ -532,7 +532,7 @@ def validate_embeddings(embeddings: np.ndarray, target_values=None,
 
 class ModelContainer:
     """
-    Loads and holds the trained readmission model (trance_framework.pkl).
+    Loads and holds the trained readmission model (ACAGN base ensemble).
     Exposes the primary LightGBM model via self.primary_model for SHAP / inference.
     """
 
@@ -544,8 +544,16 @@ class ModelContainer:
 
     def load_model(self):
         if not os.path.exists(self.model_path):
-            logger.error("Model file not found at %s", self.model_path)
-            return
+            if os.path.exists(MAIN_MODEL_PKL_LEGACY):
+                logger.warning(
+                    "Model file not found at %s; falling back to legacy path %s",
+                    self.model_path,
+                    MAIN_MODEL_PKL_LEGACY,
+                )
+                self.model_path = MAIN_MODEL_PKL_LEGACY
+            else:
+                logger.error("Model file not found at %s", self.model_path)
+                return
         try:
             self.model_data = joblib.load(self.model_path)
             self.primary_model = _extract_primary_model(self.model_data)

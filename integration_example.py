@@ -1,8 +1,8 @@
 """
-TRANCE Framework - Prediction Model Integration Guide
+ACAGN - Prediction Model Integration Guide
 =====================================================
 
-This script serves as a complete guide for integrating the TRANCE Readmission Prediction model
+This script serves as a complete guide for integrating the ACAGN Readmission Prediction model
 into external systems. It demonstrates:
 1. What input features are strictly required from the user/external system.
 2. How to handle missing secondary features (using baselines/defaults).
@@ -36,10 +36,10 @@ torch.serialization.add_safe_globals([
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-# Add the 'src' directory to the Python path so we can import TRANCE modules
+# Add the 'src' directory to the Python path so we can import project modules
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
-# Import TRANCE framework utilities
+# Import ACAGN utilities
 from config import DEFAULTS, THRESHOLD_HIGH_RISK, THRESHOLD_MEDIUM_RISK
 from embedding_utils import get_embedding, get_model_container
 
@@ -171,16 +171,17 @@ def run_prediction():
     """Main execution flow for prediction integration."""
     
     print("==================================================")
-    print("  TRANCE INTEGRATION GUIDE - PREDICTION PIPELINE  ")
+    print("  ACAGN INTEGRATION GUIDE - PREDICTION PIPELINE  ")
     print("==================================================")
     
     # Step A: Collect data (User input / Database Query)
     user_inputs = get_user_inputs()
     
     # Step B: Load the trained Meta-Learner Model
-    # `get_model_container()` initializes the singleton class that loads `models/trance_framework.pkl`
+    # `get_model_container()` initializes the singleton class that loads `models/acagn_framework.pkl`
+    # (legacy path `models/trance_framework.pkl` is supported as a fallback).
     # It contains LightGBM, XGBoost, and the isotonic calibration wrapper.
-    print("\nLoading TRANCE ensemble model from disk...")
+    print("\nLoading ACAGN ensemble model from disk...")
     model_container = get_model_container()
     
     if not model_container.model_data:

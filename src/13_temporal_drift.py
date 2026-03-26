@@ -24,13 +24,13 @@ import joblib
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))  
 try:  
     from config import (  
-        FEATURES_CSV, EMBEDDINGS_CSV, MAIN_MODEL_PKL, GATE_MODEL_PKL,  
+        FEATURES_CSV, EMBEDDINGS_CSV, MAIN_MODEL_PKL, MAIN_MODEL_PKL_LEGACY, GATE_MODEL_PKL, GATE_MODEL_PKL_LEGACY,  
         RESULTS_DIR, FIGURES_DIR, TEMPORAL_DRIFT_CSV,  
         TRAIN_TEST_FRAC, TRAIN_VAL_FRAC, RANDOM_STATE,  
     )  
 except ImportError:  
     from .config import (  
-        FEATURES_CSV, EMBEDDINGS_CSV, MAIN_MODEL_PKL, GATE_MODEL_PKL,  
+        FEATURES_CSV, EMBEDDINGS_CSV, MAIN_MODEL_PKL, MAIN_MODEL_PKL_LEGACY, GATE_MODEL_PKL, GATE_MODEL_PKL_LEGACY,  
         RESULTS_DIR, FIGURES_DIR, TEMPORAL_DRIFT_CSV,  
         TRAIN_TEST_FRAC, TRAIN_VAL_FRAC, RANDOM_STATE,  
     )
@@ -72,9 +72,17 @@ def run_temporal_drift():
 
     rows = []
 
-    # ── LightGBM predictions ────────────────────────────────────────────────  
-    if os.path.exists(MAIN_MODEL_PKL):  
-        bundle     = joblib.load(MAIN_MODEL_PKL)  
+    # ── Base ensemble predictions ───────────────────────────────────────────  
+    base_model_path = MAIN_MODEL_PKL
+    if not os.path.exists(base_model_path) and os.path.exists(MAIN_MODEL_PKL_LEGACY):
+        logger.warning(
+            "Base model not found at %s; falling back to legacy path %s",
+            base_model_path,
+            MAIN_MODEL_PKL_LEGACY,
+        )
+        base_model_path = MAIN_MODEL_PKL_LEGACY
+    if os.path.exists(base_model_path):  
+        bundle     = joblib.load(base_model_path)  
         lgbm_probs = bundle.get("test_probs_cal")  
         if lgbm_probs is not None and len(lgbm_probs) == len(y_test):  
             for yg_code, yg_label in YEAR_GROUP_LABELS.items():  
@@ -93,9 +101,17 @@ def run_temporal_drift():
                 logger.info("LightGBM | %s | AUROC: %.4f (n=%d)",  
                             yg_label, auroc, mask.sum())
 
-    # ── TRANCE-Gate predictions ─────────────────────────────────────────────  
-    if os.path.exists(GATE_MODEL_PKL):  
-        bundle     = joblib.load(GATE_MODEL_PKL)  
+    # ── ACAGN-Gate predictions ─────────────────────────────────────────────  
+    gate_model_path = GATE_MODEL_PKL
+    if not os.path.exists(gate_model_path) and os.path.exists(GATE_MODEL_PKL_LEGACY):
+        logger.warning(
+            "Gate model not found at %s; falling back to legacy path %s",
+            gate_model_path,
+            GATE_MODEL_PKL_LEGACY,
+        )
+        gate_model_path = GATE_MODEL_PKL_LEGACY
+    if os.path.exists(gate_model_path):  
+        bundle     = joblib.load(gate_model_path)  
         gate_probs = bundle.get("test_probs_cal")  
         if gate_probs is not None and len(gate_probs) == len(y_test):  
             for yg_code, yg_label in YEAR_GROUP_LABELS.items():  
@@ -104,14 +120,14 @@ def run_temporal_drift():
                     continue  
                 auroc = roc_auc_score(y_test[mask], gate_probs[mask])  
                 rows.append({  
-                    "model": "TRANCE-Gate",  
+                    "model": "ACAGN-Gate",  
                     "year_group": yg_label,  
                     "year_group_code": yg_code,  
                     "n_admissions": int(mask.sum()),  
                     "readmit_rate": round(float(y_test[mask].mean()), 4),  
                     "auroc": round(float(auroc), 4),  
                 })  
-                logger.info("TRANCE-Gate | %s | AUROC: %.4f (n=%d)",  
+                logger.info("ACAGN-Gate | %s | AUROC: %.4f (n=%d)",  
                             yg_label, auroc, mask.sum())
 
     if not rows:  

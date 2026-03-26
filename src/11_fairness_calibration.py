@@ -6,8 +6,9 @@ Computes AUROC and ECE broken down by:
   - Gender (Male, Female)  
   - Age group (five buckets)
 
-Runs for both the existing LightGBM model (trance_framework.pkl)  
-and the new TRANCE-Gate model (trance_gate.pkl).
+Runs for both the ACAGN base ensemble (acagn_framework.pkl)  
+and ACAGN-Gate (acagn_gate.pkl). Legacy `trance_*.pkl` paths are supported
+as a fallback.
 
 Produces:  
   - results/fairness_analysis.csv  
@@ -30,13 +31,13 @@ import joblib
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))  
 try:  
     from config import (  
-        FEATURES_CSV, GATE_MODEL_PKL, MAIN_MODEL_PKL,  
+        FEATURES_CSV, GATE_MODEL_PKL, GATE_MODEL_PKL_LEGACY, MAIN_MODEL_PKL, MAIN_MODEL_PKL_LEGACY,  
         RESULTS_DIR, FIGURES_DIR, TRAIN_TEST_FRAC, TRAIN_VAL_FRAC, RANDOM_STATE,  
         FAIRNESS_RESULTS_CSV, CALIBRATION_RESULTS_CSV,  
     )  
 except ImportError:  
     from .config import (  
-        FEATURES_CSV, GATE_MODEL_PKL, MAIN_MODEL_PKL,  
+        FEATURES_CSV, GATE_MODEL_PKL, GATE_MODEL_PKL_LEGACY, MAIN_MODEL_PKL, MAIN_MODEL_PKL_LEGACY,  
         RESULTS_DIR, FIGURES_DIR, TRAIN_TEST_FRAC, TRAIN_VAL_FRAC, RANDOM_STATE,  
         FAIRNESS_RESULTS_CSV, CALIBRATION_RESULTS_CSV,  
     )
@@ -186,10 +187,18 @@ def run_fairness_calibration():
     rows = []  
     probs_for_diagram = {}
 
-    # ── LightGBM baseline ──────────────────────────────────────────────────  
-    if os.path.exists(MAIN_MODEL_PKL):  
-        logger.info("Loading LightGBM baseline...")  
-        lgbm_bundle = joblib.load(MAIN_MODEL_PKL)  
+    # ── Base ensemble ─────────────────────────────────────────────────────  
+    base_model_path = MAIN_MODEL_PKL
+    if not os.path.exists(base_model_path) and os.path.exists(MAIN_MODEL_PKL_LEGACY):
+        logger.warning(
+            "Base model not found at %s; falling back to legacy path %s",
+            base_model_path,
+            MAIN_MODEL_PKL_LEGACY,
+        )
+        base_model_path = MAIN_MODEL_PKL_LEGACY
+    if os.path.exists(base_model_path):  
+        logger.info("Loading ACAGN base ensemble...")  
+        lgbm_bundle = joblib.load(base_model_path)  
         lgbm_probs  = lgbm_bundle.get("test_probs_cal")  
         lgbm_labels = lgbm_bundle.get("test_labels")
 
@@ -199,22 +208,30 @@ def run_fairness_calibration():
         else:  
             logger.warning("LightGBM test probs not found in bundle or size mismatch.")  
     else:  
-        logger.warning("LightGBM model not found at %s", MAIN_MODEL_PKL)
+        logger.warning("Base model not found at %s", base_model_path)
 
-    # ── TRANCE-Gate ────────────────────────────────────────────────────────  
-    if os.path.exists(GATE_MODEL_PKL):  
-        logger.info("Loading TRANCE-Gate...")  
-        gate_bundle = joblib.load(GATE_MODEL_PKL)  
+    # ── ACAGN-Gate ─────────────────────────────────────────────────────────  
+    gate_model_path = GATE_MODEL_PKL
+    if not os.path.exists(gate_model_path) and os.path.exists(GATE_MODEL_PKL_LEGACY):
+        logger.warning(
+            "Gate model not found at %s; falling back to legacy path %s",
+            gate_model_path,
+            GATE_MODEL_PKL_LEGACY,
+        )
+        gate_model_path = GATE_MODEL_PKL_LEGACY
+    if os.path.exists(gate_model_path):  
+        logger.info("Loading ACAGN-Gate...")  
+        gate_bundle = joblib.load(gate_model_path)  
         gate_probs  = gate_bundle.get("test_probs_cal")  
         gate_labels = gate_bundle.get("test_labels")
 
         if gate_probs is not None and len(gate_probs) == len(y_true):  
-            fairness_report("TRANCE-Gate", y_true, gate_probs, demo_test, rows)  
-            probs_for_diagram["TRANCE-Gate"] = gate_probs  
+            fairness_report("ACAGN-Gate", y_true, gate_probs, demo_test, rows)  
+            probs_for_diagram["ACAGN-Gate"] = gate_probs  
         else:  
             logger.warning("Gate probs not found or size mismatch.")  
     else:  
-        logger.warning("TRANCE-Gate model not found at %s", GATE_MODEL_PKL)
+        logger.warning("Gate model not found at %s", gate_model_path)
 
     if not rows:  
         logger.error("No model results to report. Run training first.")  

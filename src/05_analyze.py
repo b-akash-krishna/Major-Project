@@ -1,6 +1,6 @@
 # src/05_analyze.py
 """
-SHAP Interpretability Analysis for TRANCE Framework.
+SHAP Interpretability Analysis for ACAGN (base ensemble).
 Run as:  python -m src.05_analyze   OR   python src/05_analyze.py
 """
 
@@ -20,14 +20,14 @@ import shap
 # ── Import fix: works both as package module and direct script ─────────────────
 try:
     from .config import (
-        MAIN_MODEL_PKL, FEATURES_CSV, EMBEDDINGS_CSV,
+        MAIN_MODEL_PKL, MAIN_MODEL_PKL_LEGACY, FEATURES_CSV, EMBEDDINGS_CSV,
         FIGURES_DIR, RESULTS_DIR, RANDOM_STATE, SHAP_N_SAMPLES,
     )
     from .embedding_utils import _extract_primary_model
 except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from config import (
-        MAIN_MODEL_PKL, FEATURES_CSV, EMBEDDINGS_CSV,
+        MAIN_MODEL_PKL, MAIN_MODEL_PKL_LEGACY, FEATURES_CSV, EMBEDDINGS_CSV,
         FIGURES_DIR, RESULTS_DIR, RANDOM_STATE, SHAP_N_SAMPLES,
     )
     from embedding_utils import _extract_primary_model
@@ -46,12 +46,18 @@ class SHAPAnalyzer:
 
     def load_resources(self):
         """Loads the trained model and fused feature DataFrame."""
-        if not os.path.exists(MAIN_MODEL_PKL):
-            raise FileNotFoundError(
-                f"Model not found at {MAIN_MODEL_PKL}. Run 03_train.py first."
+        model_path = MAIN_MODEL_PKL
+        if not os.path.exists(model_path) and os.path.exists(MAIN_MODEL_PKL_LEGACY):
+            logger.warning(
+                "Model not found at %s; falling back to legacy path %s",
+                model_path,
+                MAIN_MODEL_PKL_LEGACY,
             )
+            model_path = MAIN_MODEL_PKL_LEGACY
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model not found at {model_path}. Run 03_train.py first.")
 
-        self.model_data    = joblib.load(MAIN_MODEL_PKL)
+        self.model_data = joblib.load(model_path)
         # ── FIX: pkl stores list of (name, model) tuples under 'models', not 'model'
         self.primary_model = _extract_primary_model(self.model_data)
 

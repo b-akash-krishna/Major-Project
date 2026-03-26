@@ -1,9 +1,9 @@
 """
-TRANCE-Hybrid: Ensemble of LightGBM and TRANCE-Gate
+ACAGN-Hybrid: Ensemble of base ensemble and ACAGN-Gate
 ==================================================
 This script combines the predictions of:
-1. Base Ensemble (LightGBM/XGBoost calibrated probabilities)
-2. TRANCE-Gate (Neural Gated Fusion calibrated probabilities)
+1. Base Ensemble (calibrated probabilities)
+2. ACAGN-Gate (Neural Gated Fusion calibrated probabilities)
 
 It performs a weighted average of the calibrated probabilities to achieve
 potentially better AUROC and more robust calibration.
@@ -25,12 +25,12 @@ import matplotlib.pyplot as plt
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
     from config import (
-        MAIN_MODEL_PKL, GATE_MODEL_PKL, RESULTS_DIR, FIGURES_DIR,
+        MAIN_MODEL_PKL, MAIN_MODEL_PKL_LEGACY, GATE_MODEL_PKL, GATE_MODEL_PKL_LEGACY, RESULTS_DIR, FIGURES_DIR,
         RANDOM_STATE
     )
 except ImportError:
     from config import (
-        MAIN_MODEL_PKL, GATE_MODEL_PKL, RESULTS_DIR, FIGURES_DIR,
+        MAIN_MODEL_PKL, MAIN_MODEL_PKL_LEGACY, GATE_MODEL_PKL, GATE_MODEL_PKL_LEGACY, RESULTS_DIR, FIGURES_DIR,
         RANDOM_STATE
     )
 
@@ -50,17 +50,33 @@ def compute_ece(probs, labels, n_bins=10):
 def run_hybrid_ensemble():
     os.makedirs(RESULTS_DIR, exist_ok=True)
     
-    logger.info("Loading Base Ensemble results from %s", MAIN_MODEL_PKL)
-    if not os.path.exists(MAIN_MODEL_PKL):
+    base_model_path = MAIN_MODEL_PKL
+    if not os.path.exists(base_model_path) and os.path.exists(MAIN_MODEL_PKL_LEGACY):
+        logger.warning(
+            "Base model not found at %s; falling back to legacy path %s",
+            base_model_path,
+            MAIN_MODEL_PKL_LEGACY,
+        )
+        base_model_path = MAIN_MODEL_PKL_LEGACY
+    logger.info("Loading Base Ensemble results from %s", base_model_path)
+    if not os.path.exists(base_model_path):
         logger.error("Base model file not found!")
         return
-    base_bundle = joblib.load(MAIN_MODEL_PKL)
+    base_bundle = joblib.load(base_model_path)
     
-    logger.info("Loading TRANCE-Gate results from %s", GATE_MODEL_PKL)
-    if not os.path.exists(GATE_MODEL_PKL):
-        logger.error("TRANCE-Gate model file not found!")
+    gate_model_path = GATE_MODEL_PKL
+    if not os.path.exists(gate_model_path) and os.path.exists(GATE_MODEL_PKL_LEGACY):
+        logger.warning(
+            "Gate model not found at %s; falling back to legacy path %s",
+            gate_model_path,
+            GATE_MODEL_PKL_LEGACY,
+        )
+        gate_model_path = GATE_MODEL_PKL_LEGACY
+    logger.info("Loading ACAGN-Gate results from %s", gate_model_path)
+    if not os.path.exists(gate_model_path):
+        logger.error("ACAGN-Gate model file not found!")
         return
-    gate_bundle = joblib.load(GATE_MODEL_PKL)
+    gate_bundle = joblib.load(gate_model_path)
     
     # 1. Extract data
     base_ids = base_bundle.get("test_hadm_ids")

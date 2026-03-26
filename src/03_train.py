@@ -1,6 +1,6 @@
 # src/03_train.py
 """
-TRANCE Framework — Training Pipeline v3.1
+ACAGN — Training Pipeline v3.1
 ==========================================
 
 INPUT FILES (all auto-discovered via config.py):
@@ -14,7 +14,7 @@ INPUT FILES (all auto-discovered via config.py):
       Optional — uses all features if missing.
 
 OUTPUT FILES:
-  • models/trance_model.pkl             — serialized ensemble + calibrator
+  • models/acagn_framework.pkl          — serialized ensemble + calibrator
       Contains: models (list), meta, calibrator, features (list),
                 best_params, best_threshold
   • results/training_report.json        — full metrics + ablation + best params

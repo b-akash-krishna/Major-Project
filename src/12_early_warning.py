@@ -32,14 +32,14 @@ try:
         MIMIC_IV_DIR, FEATURES_CSV, EMBEDDINGS_CSV,  
         RESULTS_DIR, FIGURES_DIR, EARLY_WARNING_CSV,  
         EARLY_WARNING_DAYS, RANDOM_STATE,  
-        TRAIN_TEST_FRAC, TRAIN_VAL_FRAC, MAIN_MODEL_PKL,  
+        TRAIN_TEST_FRAC, TRAIN_VAL_FRAC, MAIN_MODEL_PKL, MAIN_MODEL_PKL_LEGACY,  
     )  
 except ImportError:  
     from .config import (  
         MIMIC_IV_DIR, FEATURES_CSV, EMBEDDINGS_CSV,  
         RESULTS_DIR, FIGURES_DIR, EARLY_WARNING_CSV,  
         EARLY_WARNING_DAYS, RANDOM_STATE,  
-        TRAIN_TEST_FRAC, TRAIN_VAL_FRAC, MAIN_MODEL_PKL,  
+        TRAIN_TEST_FRAC, TRAIN_VAL_FRAC, MAIN_MODEL_PKL, MAIN_MODEL_PKL_LEGACY,  
     )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")  
@@ -180,8 +180,16 @@ def run_early_warning():
         "scale_pos_weight": float((y[train_mask] == 0).sum() /  
                                    max((y[train_mask] == 1).sum(), 1)),  
     }  
-    if os.path.exists(MAIN_MODEL_PKL):  
-        bundle = joblib.load(MAIN_MODEL_PKL)  
+    model_path = MAIN_MODEL_PKL
+    if not os.path.exists(model_path) and os.path.exists(MAIN_MODEL_PKL_LEGACY):
+        logger.warning(
+            "Base model not found at %s; falling back to legacy path %s",
+            model_path,
+            MAIN_MODEL_PKL_LEGACY,
+        )
+        model_path = MAIN_MODEL_PKL_LEGACY
+    if os.path.exists(model_path):  
+        bundle = joblib.load(model_path)  
         stored = bundle.get("best_params", {})  
         if stored:  
             best_params.update({k: v for k, v in stored.items()  

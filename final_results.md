@@ -5,36 +5,43 @@ This is the **detailed** and **fully traceable** final-results report for our pr
 
 1) a **calibrated stacked tree ensemble** (Base Ensemble; implemented as the base framework in this repo),  
 2) a **text-guided neural gating model** (ACAGN-Gate), and  
-3) a **hybrid ensemble** of the two (ACAGN-Hybrid).
+3) a **Concat-MLP baseline** (no gating; direct concatenation), and  
+4) a **hybrid ensemble** of the two (ACAGN-Hybrid).
 
 Naming note:
 - The paper/system name is **ACAGN** (*An Adaptive Context-Aware Gating Network*).
-- Some saved artifacts and code identifiers still use the legacy `trance_*` prefix (for example `models/trance_framework.pkl`, `models/trance_gate.pkl`). Those correspond to the **ACAGN** Base Ensemble and ACAGN-Gate implementations.
+- Model artifacts are now standardized to the `acagn_*` naming scheme (e.g., `models/acagn_framework.pkl`, `models/acagn_gate_infer.pkl`).
+- Legacy `trance_*` artifacts are still supported as a fallback for backwards compatibility.
 
-All metrics and tables below are taken from artifacts under `results/` from the final run timestamp:
-`2026-03-24T04:46:17` (Base framework), plus follow-on analyses generated the same day.
+All metrics and tables below are taken from artifacts under `results/`:
+- `2026-03-24T04:46:17` (Base framework + Gate + Hybrid final run), plus follow-on analyses generated the same day.
+- `2026-03-26T03:39:37` (Concat-MLP baseline run; same split + hyperparameters as ACAGN-Gate).
+- `2026-03-26T12:21:25` (ACAGN-Gate inference bundle run; saves model weights for new-patient inference to `models/acagn_gate_infer.pkl` and `results/gate_training_report_infer.json`).
 
 ---
 
 ## Abstract (What We Built + What We Achieved)
 
 We built an imaging-free readmission-risk modeling pipeline for MIMIC-IV that fuses (i) structured EHR features
-with (ii) dense clinical-text embeddings (`ct5_*`). We trained and evaluated three model families:
+with (ii) dense clinical-text embeddings (`ct5_*`). We trained and evaluated four model families:
 1) a calibrated stacked ensemble of gradient-boosted decision trees (LightGBM + XGBoost + CatBoost) with a
 logistic-regression meta-learner, 2) a neural “text-guided gating” model where the note embedding controls
-per-feature gates applied to tabular features, and 3) a probability-level hybrid (50/50 blend) of the two.
+per-feature gates applied to tabular features, 3) a no-gating Concat-MLP baseline (direct concatenation),
+and 4) a probability-level hybrid (50/50 blend) of the tree ensemble and gated model.
 
 On a held-out patient-level test set of **82,241 admissions** (readmission rate **18.43%**), our final calibrated
 metrics were:
 
 | Model | AUROC (cal) | AUPRC | ECE | Brier |
 | :--- | :---: | :---: | :---: | :---: |
-| Base Ensemble | 0.7705 | 0.4708 | 0.0036 | 0.1245 |
+| Base Ensemble | 0.7705 | 0.4708 | 0.0035 | 0.1245 |
 | ACAGN-Gate | 0.7683 | 0.4679 | 0.0058 | 0.1249 |
+| Concat-MLP (no gating) | 0.7545 | 0.4511 | 0.0033 | 0.1272 |
 | **ACAGN-Hybrid** | **0.7738** | **0.4838** | 0.0061 | **0.1239** |
 
 We also performed early-warning evaluation (Day 1–7), temporal drift checks (2008–2022),
-fairness subgroup reporting, and interpretability analyses (SHAP for the tree model; gate-weight analysis for ACAGN-Gate).
+fairness subgroup reporting, **post-hoc subgroup-specific threshold optimisation** for equitable recall across
+demographic groups, and interpretability analyses (SHAP for the tree model; gate-weight analysis for ACAGN-Gate).
 
 ---
 
@@ -44,11 +51,11 @@ fairness subgroup reporting, and interpretability analyses (SHAP for the tree mo
 2. Data, cohort, and patient-level splits  
 3. Pipeline overview (scripts + outputs)  
 4. Inputs and feature engineering (structured + text embeddings)  
-5. Models trained (Base, Gate, Hybrid)  
+5. Models trained (Base, Gate, Concat, Hybrid)  
 6. Metrics definitions (discrimination + calibration + thresholds)  
 7. Final test-set results (headline table)  
 8. Threshold / operating points (TP/TN/FP/FN)  
-9. Additional analyses (early warning, drift, fairness, gating interpretability)  
+9. Additional analyses (early warning, drift, fairness, gating interpretability, **subgroup threshold optimisation**)  
 10. Interpretability (SHAP + what “no extra training” means)  
 11. Artifacts and figures saved  
 12. Conclusions  
@@ -97,8 +104,9 @@ This repo is organized as a script pipeline under `src/`:
 | 1 | `src/01_extract.py` | Extract structured EHR features | `data/ultimate_features.csv` |
 | 2 | `src/01b_select_features.py` | Feature ranking + pruning utilities | selection artifacts |
 | 3 | `src/02_embed.py` | Generate note embeddings (`ct5_*`) | `data/embeddings.csv` |
-| 4 | `src/03_train.py` | Train + calibrate stacked tree ensemble | `models/trance_framework.pkl`, `results/training_report.json` |
-| 5 | `src/gated_fusion_model.py` | Train + calibrate ACAGN-Gate | `models/trance_gate.pkl`, `results/gate_training_report.json` |
+| 4 | `src/03_train.py` | Train + calibrate stacked tree ensemble | `models/acagn_framework.pkl`, `results/training_report.json` |
+| 5 | `src/gated_fusion_model.py` | Train + calibrate ACAGN-Gate | `models/acagn_gate_infer.pkl`, `results/gate_training_report_infer.json` (inference bundle); legacy: `results/gate_training_report.json` |
+| 5b | `src/concat_mlp_baseline.py` | Train + calibrate Concat-MLP baseline (no gating) | `models/acagn_concat_mlp.pkl`, `results/concat_mlp_training_report.json` |
 | 6 | `src/10_gate_interpretability.py` | Gate interpretability testing | `results/gate_interpretability.csv`, `figures/gate_heatmap.png` |
 | 7 | `src/11_fairness_calibration.py` | Fairness + calibration across subgroups | `results/fairness_analysis.csv` |
 | 8 | `src/12_early_warning.py` | Early warning (Day-limited EHR) | `results/early_warning_results.csv`, `figures/early_warning_curve.png` |
@@ -108,6 +116,7 @@ This repo is organized as a script pipeline under `src/`:
 For deployment, we also implemented:
 - `src/07_api.py` (FastAPI inference service)
 - `src/08_predict.py` (local prediction utility)
+- `src/07_api.py` supports `POST /predict?model=base|gate|hybrid` (gate/hybrid require the inference bundle `models/acagn_gate_infer.pkl`)
 
 Note on artifacts:
 - Large generated data/model files are typically **not committed to git** (see `.gitignore`), so your workspace may contain
@@ -143,7 +152,7 @@ The Base Ensemble uses automatic feature subset selection:
 - Candidate subsets evaluated on validation AUROC: top-128, 160, 220, 259, and full 675
 - Selected: **k = 128** (best validation AUROC)
 
-From the saved model bundle (`models/trance_framework.pkl`):
+From the saved model bundle (`models/acagn_framework.pkl`):
 - Final features used: `128`
 - Among them, **58** are `ct5_*` dimensions and **70** are structured features.
 
@@ -155,7 +164,7 @@ ACAGN-Gate is trained on:
 
 Evidence:
 - `results/gate_training_report.json`: `tab_features` length = **160**
-- `models/trance_gate.pkl`: `text_dim = 515`, `tabular_dim = 160`
+- `models/acagn_gate_infer.pkl`: `text_dim = 515`, `tabular_dim = 160`
 
 ---
 
@@ -168,7 +177,7 @@ Evidence:
 - Meta-learner: Logistic Regression (stacking)
 - Calibration: Isotonic Regression fitted on validation → applied to test
 
-Saved in `models/trance_framework.pkl`:
+Saved in `models/acagn_framework.pkl`:
 - `models`: `['lgbm', 'xgb', 'catboost']`
 - `meta`: `LogisticRegression`
 - `calibrator`: isotonic regressor
@@ -250,6 +259,29 @@ Saved in:
 
 ---
 
+## 5.4 Concat-MLP Baseline (No Gating; Direct Concatenation)
+
+**Goal:** isolate whether ACAGN-Gate performance gains come from the *gating mechanism itself*, rather than simply
+combining text + structured features.
+
+**Architecture:** identical to ACAGN-Gate’s classifier head, but removes the gate network entirely:
+- Fusion: `concat(text_embedding, tabular_features)`
+- Classifier head: same MLP layout and dropout as ACAGN-Gate
+- Training: same patient-level split strategy, seeds, optimizer, epochs, scheduler, early stopping, and isotonic calibration
+
+**Artifacts:**
+- `src/concat_mlp_baseline.py`
+- `models/acagn_concat_mlp.pkl`
+- `results/concat_mlp_training_report.json`
+
+**Final test-set metrics (calibrated):**
+- AUROC (cal): `0.7545`
+- AUPRC: `0.4511`
+- ECE: `0.0033`
+- Brier: `0.1272`
+
+---
+
 ## 6. Metrics (What We Focused On and Why)
 
 We reported both **discrimination** and **calibration**, because clinical risk stratification needs reliable probabilities.
@@ -275,16 +307,18 @@ We also report operating points to support clinical trade-offs:
 
 All results below are on the held-out **patient-level** test set (`n = 82,241` admissions).
 
-From `results/training_report.json`, `results/gate_training_report.json`, and `results/hybrid_report.json`:
+From `results/training_report.json`, `results/gate_training_report.json`, `results/concat_mlp_training_report.json`, and `results/hybrid_report.json`:
 
 | Model | AUROC (raw) | AUROC (cal) | AUPRC | ECE | Brier | Log loss |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| Base Ensemble | 0.7708 | 0.7705 | 0.4708 | 0.0036 | 0.1245 | 0.3984 |
+| Base Ensemble | 0.7708 | 0.7705 | 0.4708 | 0.0035 | 0.1245 | 0.3984 |
 | ACAGN-Gate | 0.7684 | 0.7683 | 0.4679 | 0.0058 | 0.1249 | — |
+| Concat-MLP (no gating) | 0.7547 | 0.7545 | 0.4511 | 0.0033 | 0.1272 | — |
 | **ACAGN-Hybrid** | — | **0.7738** | **0.4838** | 0.0061 | **0.1239** | — |
 
 Key observations:
-- Base Ensemble is the strongest single model in calibration (lowest ECE/Brier among single models).
+- Base Ensemble has the best Brier score among the single models in this saved run.
+- Concat-MLP has slightly lower ECE than Base Ensemble, but materially worse AUROC/AUPRC.
 - ACAGN-Gate is close in AUROC/AUPRC and supports gating-based interpretability.
 - ACAGN-Hybrid provides the best AUROC and AUPRC in the saved run.
 
@@ -369,6 +403,49 @@ From `results/gate_interpretability.csv` (Mann–Whitney U tests + Bonferroni co
   (mean difference `-0.0508`, p `1.68e-90`)
 - Chronic kidney disease: multiple creatinine/BUN-related gate weights shift when CKD is mentioned (many p-values reported as ~`0.0`)
 
+## 9.5 Post-Hoc Subgroup-Specific Threshold Optimisation (Fairness Intervention)
+
+Script: `subgroup_threshold_optimizer.py`
+
+Prerequisite (to reconstruct the frozen validation/test splits + probabilities used by the optimizer):
+- `generate_frozen_probs.py` → writes `results/val_probs.csv`, `results/val_labels.csv`, `results/val_meta.csv`, and the corresponding `results/test_*.csv` files.
+
+**Motivation:** A single global decision threshold (0.295) may systematically under-serve certain demographic
+subgroups — particularly elderly patients whose readmission risk profiles differ from the population average.
+Instead of retraining the model, we apply a **post-hoc fairness intervention**: find the optimal threshold
+for each demographic subgroup on the validation set (maximising MCC), then apply those subgroup-specific
+thresholds to the test set.
+
+**Methodology:**
+- Thresholds fitted **only** on the validation set (n = 81,251); never on the test set.
+- Search range: 0.01–0.99 in steps of 0.005.
+- Criterion: maximise Matthews Correlation Coefficient (MCC) per subgroup.
+- Test-set evaluation uses the frozen calibrated probabilities from the Base Ensemble.
+
+**Results on test set (n = 82,241):**
+
+| Subgroup | Global Thr | Optimal Thr | MCC (Global → Opt) | Recall (Global → Opt) |
+| :--- | :---: | :---: | :--- | :--- |
+| Age < 40 | 0.295 | 0.310 | 0.474 → 0.470 (−0.004) | 0.566 → 0.552 (−0.015) |
+| Age 40–54 | 0.295 | 0.275 | 0.343 → 0.347 (+0.004) | 0.487 → 0.569 (+0.082) |
+| Age 55–64 | 0.295 | 0.270 | 0.324 → 0.326 (+0.002) | 0.425 → 0.533 (+0.108) |
+| Age 65–74 | 0.295 | 0.245 | 0.273 → 0.281 (+0.008) | 0.368 → 0.505 (+0.138) |
+| Age 75+ | 0.295 | 0.210 | 0.183 → 0.218 (**+0.035**) | 0.216 → 0.463 (**+0.247**) |
+| Gender: Male | 0.295 | 0.285 | 0.327 → 0.330 (+0.003) | 0.440 → 0.511 (+0.071) |
+| Gender: Female | 0.295 | 0.315 | 0.337 → 0.337 (−0.000) | 0.406 → 0.391 (−0.015) |
+| **Average** | | | **+0.007** | **+0.088** |
+
+**Key findings:**
+- Elderly patients (75+) benefit most: recall jumps from 21.6% to 46.3% (+24.7 pp), addressing the most severe
+  demographic disparity in the baseline system.
+- Average recall improvement across all subgroups: **+8.8 percentage points** at a negligible MCC trade-off (+0.007).
+- The intervention requires **zero retraining** — only a lookup table of 7 thresholds.
+
+**Artifacts:**
+- `subgroup_thresholds_report.json` — full JSON report with all fitted thresholds and per-subgroup metrics.
+- `results/val_probs.csv`, `results/val_labels.csv`, `results/val_meta.csv` — reconstructed validation split.
+- `results/test_probs.csv`, `results/test_labels.csv`, `results/test_meta.csv` — reconstructed test split.
+
 ---
 
 ## 10. Interpretability: SHAP and “Do We Need Extra Training?”
@@ -386,8 +463,8 @@ If an older bundle does not contain saved weights, you must train once with an u
 then SHAP-only runs can be executed without training.
 
 Practical commands:
-- Train (once, to save weights): `python3 src/gated_fusion_model.py`
-- SHAP-only (no training): `python3 src/gated_fusion_model.py --shap-only`
+- Train (once, to save weights for inference/SHAP): `python3 -m src.gated_fusion_model --model-out models/acagn_gate_infer.pkl --report-out results/gate_training_report_infer.json`
+- SHAP-only (no training): `python3 -m src.gated_fusion_model --shap-only`
 
 ### 10.3 ACAGN-Hybrid “SHAP”
 
@@ -410,15 +487,20 @@ To make access easier, we generate a dedicated metrics bundle:
 ### 11.1 Primary reports (present)
 - `results/training_report.json`
 - `results/gate_training_report.json`
+- `results/gate_training_report_infer.json`
+- `results/concat_mlp_training_report.json`
 - `results/hybrid_report.json`
 - `results/hybrid_predictions.csv`
 - `results/test_predictions.csv`
+- `subgroup_thresholds_report.json`
 
 ### 11.2 Analysis outputs (present)
 - `results/fairness_analysis.csv`
 - `results/early_warning_results.csv`
 - `results/temporal_drift_results.csv`
 - `results/gate_interpretability.csv`
+- `results/val_probs.csv`, `results/val_labels.csv`, `results/val_meta.csv`
+- `results/test_probs.csv`, `results/test_labels.csv`, `results/test_meta.csv`
 
 ### 11.3 Figures (present)
 - `figures/roc_pr_curve.png`
@@ -461,4 +543,10 @@ To make access easier, we generate a dedicated metrics bundle:
 On a large held-out patient-level test set, the Base Ensemble is strong and tightly calibrated, ACAGN-Gate matches it
 closely while adding interpretable feature gating, and the simple ACAGN-Hybrid blend delivers the best AUROC and AUPRC
 in this saved evaluation. The early-warning, temporal drift, and subgroup reports suggest stable performance across time
-and clinically relevant cohorts, with expected degradation in more complex elderly readmission groups.
+and clinically relevant cohorts.
+
+Critically, **post-hoc subgroup-specific threshold optimisation** addresses the demographic recall disparity observed
+under a single global threshold — elderly patients (75+) saw recall improve from 21.6% to 46.3%, a +24.7 pp gain,
+without any model retraining. On average across all subgroups, recall improved by +8.8 pp at a negligible MCC cost
+of +0.7 pp, demonstrating that a simple threshold lookup table can substantially improve fairness in clinical
+deployment.
